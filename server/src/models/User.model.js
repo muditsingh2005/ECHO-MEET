@@ -19,6 +19,11 @@ const userSchema = new Schema({
     password :{
         type:String,
     },
+    googleId: {
+        type: String,
+        unique: true,
+        sparse: true, // Allows null values while maintaining uniqueness
+    },
     avatar :{
         type:String,
     },  
