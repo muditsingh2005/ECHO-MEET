@@ -1,7 +1,6 @@
 import { User } from "../models/User.model.js";
 import jwt from "jsonwebtoken";
 
-// Cookie options for JWT token
 const cookieOptions = {
   httpOnly: true, // Prevents XSS attacks - JS can't access cookie
   secure: process.env.NODE_ENV === "production", // HTTPS only in production
@@ -9,26 +8,18 @@ const cookieOptions = {
   maxAge: 60 * 60 * 1000, // 1 hour in milliseconds
 };
 
-/**
- * Google OAuth callback handler
- * Called after successful Google authentication
- */
 export const googleCallback = async (req, res) => {
   try {
-    // User is attached by passport after successful authentication
     const user = req.user;
 
     if (!user) {
       return res.status(401).json({ message: "Authentication failed" });
     }
 
-    // Generate JWT access token
     const accessToken = generateAccessToken(user);
 
-    // Set JWT in HttpOnly cookie
     res.cookie("accessToken", accessToken, cookieOptions);
 
-    // Redirect to frontend dashboard (adjust URL as needed)
     res.redirect(process.env.FRONTEND_URL || "http://localhost:5173/dashboard");
   } catch (error) {
     console.error("Google callback error:", error);
@@ -38,8 +29,8 @@ export const googleCallback = async (req, res) => {
 
 /**
  * Generate JWT access token
- * @param {Object} user - User document from MongoDB
- * @returns {string} JWT token
+ * @param {Object} user
+ * @returns {string}
  */
 const generateAccessToken = (user) => {
   const payload = {
@@ -53,9 +44,6 @@ const generateAccessToken = (user) => {
   });
 };
 
-/**
- * Get current authenticated user
- */
 export const getCurrentUser = async (req, res) => {
   try {
     // req.user is set by auth middleware
@@ -72,9 +60,6 @@ export const getCurrentUser = async (req, res) => {
   }
 };
 
-/**
- * Logout - clear JWT cookie
- */
 export const logout = (req, res) => {
   res.clearCookie("accessToken", {
     httpOnly: true,
