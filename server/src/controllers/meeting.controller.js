@@ -51,3 +51,38 @@ export const createMeeting = async (req, res) => {
     });
   }
 };
+
+/**
+ * Get meeting by ID
+ * @route GET /api/meetings/:meetingId
+ * @access Private
+ */
+export const getMeetingById = async (req, res) => {
+  try {
+    const { meetingId } = req.params;
+
+    const meeting = await Meeting.findOne({ meetingId }).populate(
+      "hostId",
+      "name email",
+    );
+
+    if (!meeting) {
+      return res.status(404).json({
+        success: false,
+        message: "Meeting not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      meeting,
+    });
+  } catch (error) {
+    console.error("Error fetching meeting:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
