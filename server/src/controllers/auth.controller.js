@@ -2,10 +2,10 @@ import { User } from "../models/User.model.js";
 import jwt from "jsonwebtoken";
 
 const cookieOptions = {
-  httpOnly: true, // Prevents XSS attacks - JS can't access cookie
-  secure: process.env.NODE_ENV === "production", // HTTPS only in production
-  sameSite: "lax", // CSRF protection
-  maxAge: 60 * 60 * 1000, // 1 hour in milliseconds
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+  maxAge: 60 * 60 * 1000,
 };
 
 export const googleCallback = async (req, res) => {
@@ -27,11 +27,6 @@ export const googleCallback = async (req, res) => {
   }
 };
 
-/**
- * Generate JWT access token
- * @param {Object} user
- * @returns {string}
- */
 const generateAccessToken = (user) => {
   const payload = {
     userId: user._id,
