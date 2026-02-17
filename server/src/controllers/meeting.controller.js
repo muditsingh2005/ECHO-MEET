@@ -52,11 +52,6 @@ export const createMeeting = async (req, res) => {
   }
 };
 
-/**
- * Get meeting by ID
- * @route GET /api/meetings/:meetingId
- * @access Private
- */
 export const getMeetingById = async (req, res) => {
   try {
     const { meetingId } = req.params;
@@ -79,6 +74,26 @@ export const getMeetingById = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching meeting:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+export const getUserMeetingHistory = async (req, res) => {
+  try {
+    const meetings = await Meeting.find({ hostId: req.user.userId })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      meetings,
+    });
+  } catch (error) {
+    console.error("Error fetching user meeting history:", error);
 
     return res.status(500).json({
       success: false,
