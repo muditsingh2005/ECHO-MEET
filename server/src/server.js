@@ -3,6 +3,7 @@ import { Server } from "socket.io";
 import { app } from "./app.js";
 import dotenv from "dotenv";
 import connectDB from "./config/db.js";
+import { socketAuthMiddleware } from "./middleware/socket.auth.middleware.js";
 
 dotenv.config({
   path: "../.env",
@@ -17,6 +18,8 @@ const io = new Server(httpServer, {
     credentials: true,
   },
 });
+
+io.use(socketAuthMiddleware);
 
 connectDB()
   .then(() => {
