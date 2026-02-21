@@ -1,4 +1,5 @@
 import { Meeting } from "../models/Meeting.model.js";
+import { addUser, removeUser, getParticipants } from "../utils/roomManager.js";
 
 export const registerRoomHandlers = (socket, io) => {
   socket.on("join-room", async ({ meetingId }) => {
@@ -20,9 +21,16 @@ export const registerRoomHandlers = (socket, io) => {
 
       socket.meetingId = meetingId;
 
+      // Track user in room manager
+      addUser(meetingId, socket.user.userId);
+
+      // Get current participants
+      const participants = getParticipants(meetingId);
+
       socket.emit("room-joined", {
         meetingId,
         userId: socket.user.userId,
+        participants,
       });
 
       socket.to(meetingId).emit("user-joined", {
@@ -41,6 +49,9 @@ export const registerRoomHandlers = (socket, io) => {
   // Handle disconnection
   socket.on("disconnect", () => {
     if (socket.meetingId) {
+      // Remove user from room manager
+      removeUser(socket.meetingId, socket.user.userId);
+
       socket.to(socket.meetingId).emit("user-left", {
         userId: socket.user.userId,
         name: socket.user.name,
