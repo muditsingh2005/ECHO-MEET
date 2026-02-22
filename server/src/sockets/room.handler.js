@@ -173,10 +173,6 @@ export const registerRoomHandlers = (socket, io) => {
     );
   });
 
-  // ============== End WebRTC Signaling Events ==============
-
-  // ============== Chat Events ==============
-
   // Handle send-message
   socket.on("send-message", async ({ meetingId, content }) => {
     try {
@@ -224,7 +220,151 @@ export const registerRoomHandlers = (socket, io) => {
     }
   });
 
-  // ============== End Chat Events ==============
+  // Handle remove-user (host only)
+  socket.on("remove-user", async ({ meetingId, targetUserId }) => {
+    try {
+      if (!meetingId) {
+        socket.emit("error", { message: "Meeting ID is required" });
+        return;
+      }
+
+      if (!targetUserId) {
+        socket.emit("error", { message: "Target user ID is required" });
+        return;
+      }
+
+      const meeting = await Meeting.findOne({ meetingId });
+      if (!meeting) {
+        socket.emit("error", { message: "Meeting not found" });
+        return;
+      }
+
+      // Validate caller is the host
+      const isHost =
+        meeting.hostId.toString() === socket.user.userId.toString();
+      if (!isHost) {
+        socket.emit("error", { message: "Only the host can remove users" });
+        return;
+      }
+
+      // Prevent host from removing themselves
+      if (targetUserId === socket.user.userId.toString()) {
+        socket.emit("error", { message: "Host cannot remove themselves" });
+        return;
+      }
+
+      // Check if target user is in the meeting
+      if (!isUserInRoom(meetingId, targetUserId)) {
+        socket.emit("error", { message: "User is not in this meeting" });
+        return;
+      }
+
+      // Find target user's socket and disconnect
+      const sockets = await io.in(meetingId).fetchSockets();
+      const targetSocket = sockets.find(
+        (s) => s.user && s.user.userId.toString() === targetUserId,
+      );
+
+      if (targetSocket) {
+        // Remove from room manager
+        removeUser(meetingId, targetUserId);
+
+        // Update Participant document
+        await Participant.findOneAndUpdate(
+          {
+            meetingId: meeting._id,
+            userId: targetUserId,
+          },
+          {
+            leftAt: new Date(),
+          },
+        );
+
+        // Notify the removed user
+        targetSocket.emit("removed-from-meeting", {
+          meetingId,
+          reason: "You have been removed by the host",
+        });
+
+        // Disconnect target from the meeting room
+        targetSocket.leave(meetingId);
+        targetSocket.meetingId = null;
+
+        // Broadcast to room that user was removed
+        io.to(meetingId).emit("user-removed", {
+          userId: targetUserId,
+          removedBy: socket.user.userId,
+        });
+
+        console.log(
+          `User ${targetUserId} removed from meeting ${meetingId} by host ${socket.user.userId}`,
+        );
+      }
+    } catch (error) {
+      console.error("Error removing user:", error);
+      socket.emit("error", { message: "Failed to remove user" });
+    }
+  });
+
+  // Handle end-meeting (host only)
+  socket.on("end-meeting", async ({ meetingId }) => {
+    try {
+      if (!meetingId) {
+        socket.emit("error", { message: "Meeting ID is required" });
+        return;
+      }
+
+      const meeting = await Meeting.findOne({ meetingId });
+      if (!meeting) {
+        socket.emit("error", { message: "Meeting not found" });
+        return;
+      }
+
+      // Validate caller is the host
+      const isHost =
+        meeting.hostId.toString() === socket.user.userId.toString();
+      if (!isHost) {
+        socket.emit("error", { message: "Only the host can end the meeting" });
+        return;
+      }
+
+      // Set meeting as inactive
+      await Meeting.findOneAndUpdate({ meetingId }, { isActive: false });
+
+      // Update all participants' leftAt
+      await Participant.updateMany(
+        {
+          meetingId: meeting._id,
+          leftAt: null,
+        },
+        {
+          leftAt: new Date(),
+        },
+      );
+
+      // Notify all users in the room
+      io.to(meetingId).emit("meeting-ended", {
+        meetingId,
+        endedBy: socket.user.userId,
+      });
+
+      // Disconnect all sockets from the room
+      const sockets = await io.in(meetingId).fetchSockets();
+      for (const s of sockets) {
+        // Remove from room manager
+        if (s.user) {
+          removeUser(meetingId, s.user.userId);
+        }
+        s.leave(meetingId);
+        s.meetingId = null;
+      }
+
+      console.log(`Meeting ${meetingId} ended by host ${socket.user.userId}`);
+    } catch (error) {
+      console.error("Error ending meeting:", error);
+      socket.emit("error", { message: "Failed to end meeting" });
+    }
+  });
 
   // Handle disconnection
   socket.on("disconnect", async () => {
