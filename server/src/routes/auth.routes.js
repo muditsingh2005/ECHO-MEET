@@ -4,6 +4,7 @@ import {
   googleCallback,
   getCurrentUser,
   logout,
+  refreshAccessToken,
 } from "../controllers/auth.controller.js";
 import { verifyJWT } from "../middleware/auth.middleware.js";
 
@@ -26,6 +27,8 @@ router.get(
 );
 
 router.get("/me", verifyJWT, getCurrentUser);
+
+router.post("/refresh", refreshAccessToken);
 
 router.post("/logout", logout);
 

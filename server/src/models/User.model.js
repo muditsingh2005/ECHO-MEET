@@ -31,7 +31,18 @@ const userSchema = new Schema({
         type:Date,
         default:Date.now,
     },
-    
+    refreshToken: {
+        type: String,
+        default: null,
+    },
+    blacklistedTokens: [{
+        token: String,
+        blacklistedAt: {
+            type: Date,
+            default: Date.now,
+            expires: 7 * 24 * 60 * 60 // Auto-delete after 7 days
+        }
+    }],
 })
 
 
