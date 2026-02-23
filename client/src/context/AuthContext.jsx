@@ -15,10 +15,6 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  /**
-   * Fetch current user on mount
-   * Checks if user is already authenticated via cookies
-   */
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -37,21 +33,10 @@ export const AuthProvider = ({ children }) => {
     checkAuth();
   }, []);
 
-  /**
-   * Initiate Google OAuth login
-   * Redirects to backend OAuth endpoint
-   */
   const login = useCallback(() => {
     window.location.href = `${import.meta.env.VITE_API_BASE_URL}/v1/auth/google`;
   }, []);
 
-  /**
-   * Logout user
-   * - Calls logout API
-   * - Disconnects socket
-   * - Clears auth state
-   * - Redirects to login
-   */
   const logout = useCallback(async () => {
     try {
       await api.post("/v1/auth/logout");
@@ -67,17 +52,10 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-  /**
-   * Update user data
-   * Useful for profile updates without full re-fetch
-   */
   const updateUser = useCallback((userData) => {
     setUser((prev) => ({ ...prev, ...userData }));
   }, []);
 
-  /**
-   * Refresh user data from server
-   */
   const refreshUser = useCallback(async () => {
     try {
       const response = await api.get("/v1/auth/me");
@@ -113,5 +91,3 @@ export const useAuth = () => {
 
   return context;
 };
-
-export default AuthContext;

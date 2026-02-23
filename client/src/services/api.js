@@ -12,6 +12,8 @@ const api = axios.create({
 let isRefreshing = false;
 let failedQueue = [];
 
+const AUTH_CHECK_ENDPOINTS = ["/v1/auth/me", "/v1/auth/refresh"];
+
 const processQueue = (error) => {
   failedQueue.forEach((promise) => {
     if (error) {
@@ -24,12 +26,20 @@ const processQueue = (error) => {
 };
 
 const redirectToLogin = () => {
+  // Prevent redirect loops
+  if (window.location.pathname === "/login") {
+    return;
+  }
+
   // Clear any local storage auth data if used
   localStorage.removeItem("user");
   sessionStorage.removeItem("user");
 
-  // Redirect to login page (which initiates /v1/auth/google)
   window.location.href = "/login";
+};
+
+const shouldSkipRefresh = (url) => {
+  return AUTH_CHECK_ENDPOINTS.some((endpoint) => url?.includes(endpoint));
 };
 
 api.interceptors.response.use(
@@ -42,11 +52,12 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // Don't retry if this is already a retry or a refresh request
-    if (
-      originalRequest._retry ||
-      originalRequest.url?.includes("/auth/refresh")
-    ) {
+    if (shouldSkipRefresh(originalRequest.url)) {
+      return Promise.reject(error);
+    }
+
+    // Don't retry if this is already a retry
+    if (originalRequest._retry) {
       redirectToLogin();
       return Promise.reject(error);
     }

@@ -8,7 +8,6 @@ import meetingRoutes from "./routes/meeting.routes.js";
 
 const app = express();
 
-// CORS configuration - tightened for production
 const allowedOrigins =
   process.env.NODE_ENV === "production"
     ? [process.env.CORS_ORIGIN].filter(Boolean)
@@ -20,7 +19,6 @@ const allowedOrigins =
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests) in development
     if (!origin && process.env.NODE_ENV !== "production") {
       return callback(null, true);
     }
@@ -39,10 +37,9 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Rate limiters
 const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 40, // Limit each IP to 40 requests per window
+  max: 20, // Limit each IP to 40 requests per window
   message: {
     error:
       "Too many authentication attempts, please try again after 15 minutes",
