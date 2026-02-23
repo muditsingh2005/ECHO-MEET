@@ -32,7 +32,7 @@ export const googleCallback = async (req, res) => {
     res.cookie("accessToken", accessToken, accessCookieOptions);
     res.cookie("refreshToken", refreshToken, refreshCookieOptions);
 
-    res.redirect(process.env.FRONTEND_URL || "http://localhost:5173/dashboard");
+    res.redirect(process.env.FRONTEND_URL || "http://localhost:5173/home");
   } catch (error) {
     console.error("Google callback error:", error);
     res.status(500).json({ message: "Internal server error" });
@@ -64,7 +64,9 @@ const generateRefreshToken = (user) => {
 export const getCurrentUser = async (req, res) => {
   try {
     // req.user is set by auth middleware
-    const user = await User.findById(req.user.userId).select("-password -refreshToken -blacklistedTokens");
+    const user = await User.findById(req.user.userId).select(
+      "-password -refreshToken -blacklistedTokens",
+    );
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -83,8 +85,11 @@ export const logout = async (req, res) => {
 
     if (refreshToken) {
       // Decode token to get user ID
-      const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
-      
+      const decoded = jwt.verify(
+        refreshToken,
+        process.env.REFRESH_TOKEN_SECRET,
+      );
+
       // Blacklist the refresh token and clear stored token
       await User.findByIdAndUpdate(decoded.userId, {
         refreshToken: null,
@@ -131,7 +136,9 @@ export const refreshAccessToken = async (req, res) => {
     try {
       decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
     } catch (err) {
-      return res.status(401).json({ message: "Invalid or expired refresh token" });
+      return res
+        .status(401)
+        .json({ message: "Invalid or expired refresh token" });
     }
 
     // Find user and validate token
@@ -143,16 +150,20 @@ export const refreshAccessToken = async (req, res) => {
 
     // Check if token matches stored token
     if (user.refreshToken !== refreshToken) {
-      return res.status(401).json({ message: "Refresh token mismatch - possible token reuse" });
+      return res
+        .status(401)
+        .json({ message: "Refresh token mismatch - possible token reuse" });
     }
 
     // Check if token is blacklisted
     const isBlacklisted = user.blacklistedTokens?.some(
-      (item) => item.token === refreshToken
+      (item) => item.token === refreshToken,
     );
 
     if (isBlacklisted) {
-      return res.status(401).json({ message: "Refresh token has been revoked" });
+      return res
+        .status(401)
+        .json({ message: "Refresh token has been revoked" });
     }
 
     // Generate new access token
@@ -165,9 +176,9 @@ export const refreshAccessToken = async (req, res) => {
     res.cookie("accessToken", newAccessToken, accessCookieOptions);
     res.cookie("refreshToken", newRefreshToken, refreshCookieOptions);
 
-    res.json({ 
+    res.json({
       message: "Token refreshed successfully",
-      accessToken: newAccessToken // For clients that don't use cookies
+      accessToken: newAccessToken, // For clients that don't use cookies
     });
   } catch (error) {
     console.error("Refresh token error:", error);
