@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from "react-router-dom";
-import { LoginPage, HomePage } from "./pages";
+import { LoginPage, HomePage, MeetingPage } from "./pages";
 import { ProtectedRoute } from "./components";
 import "./App.css";
 
@@ -12,6 +12,14 @@ function App() {
         element={
           <ProtectedRoute>
             <HomePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/meeting/:meetingId"
+        element={
+          <ProtectedRoute>
+            <MeetingPage />
           </ProtectedRoute>
         }
       />

@@ -1,0 +1,143 @@
+import { useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { useAuth } from "../context";
+import "./MeetingPage.css";
+
+// Google Meet style icons
+const MicIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+    <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+  </svg>
+);
+
+const MicOffIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor">
+    <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z" />
+  </svg>
+);
+
+const VideoIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor">
+    <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />
+  </svg>
+);
+
+const VideoOffIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor">
+    <path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.82L21 17.18V6.5zM3.27 2L2 3.27 4.73 6H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.21 0 .39-.08.54-.18L19.73 21 21 19.73 3.27 2z" />
+  </svg>
+);
+
+const ChatIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor">
+    <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z" />
+  </svg>
+);
+
+const CallEndIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" />
+  </svg>
+);
+
+const CopyIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+  </svg>
+);
+
+const CheckIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
+const MeetingPage = () => {
+  const { meetingId } = useParams();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [copied, setCopied] = useState(false);
+
+  const handleLeaveMeeting = () => {
+    navigate("/home");
+  };
+
+  const handleCopyMeetingId = async () => {
+    try {
+      await navigator.clipboard.writeText(meetingId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
+
+  return (
+    <div className="meeting-page">
+      <header className="meeting-header">
+        <div className="meeting-info">
+          <span className="meeting-id">{meetingId}</span>
+          <button
+            className={`copy-btn ${copied ? "copied" : ""}`}
+            onClick={handleCopyMeetingId}
+            title="Copy Meeting ID"
+          >
+            {copied ? <CheckIcon /> : <CopyIcon />}
+            {copied ? "Copied!" : "Copy ID"}
+          </button>
+        </div>
+        <button className="btn-leave" onClick={handleLeaveMeeting}>
+          Leave Meeting
+        </button>
+      </header>
+
+      <main className="meeting-main">
+        <div className="video-grid">
+          <div className="video-placeholder">
+            <div className="user-avatar-large">
+              {user?.name?.charAt(0) || "U"}
+            </div>
+            <span className="participant-name">{user?.name || "You"}</span>
+          </div>
+        </div>
+      </main>
+
+      <footer className="meeting-controls">
+        <button className="control-btn" title="Toggle Microphone">
+          <MicIcon />
+        </button>
+        <button className="control-btn" title="Toggle Camera">
+          <VideoIcon />
+        </button>
+        <button className="control-btn" title="Chat">
+          <ChatIcon />
+        </button>
+        <button
+          className="control-btn btn-end"
+          onClick={handleLeaveMeeting}
+          title="End Call"
+        >
+          <CallEndIcon />
+        </button>
+      </footer>
+    </div>
+  );
+};
+
+export default MeetingPage;

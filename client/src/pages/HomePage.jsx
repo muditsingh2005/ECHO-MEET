@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context";
+import api from "../services/api";
 import "./HomePage.css";
 
 // Icons as components
@@ -79,24 +80,140 @@ const LinkIcon = () => (
   </svg>
 );
 
+const LoaderIcon = () => (
+  <svg
+    className="spinner-icon"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
+    <circle cx="12" cy="12" r="10" opacity="0.25" />
+    <path d="M12 2a10 10 0 0 1 10 10" />
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+);
+
+const CalendarIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+    <line x1="16" y1="2" x2="16" y2="6" />
+    <line x1="8" y1="2" x2="8" y2="6" />
+    <line x1="3" y1="10" x2="21" y2="10" />
+  </svg>
+);
+
 const HomePage = () => {
   const [meetingId, setMeetingId] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+  const [error, setError] = useState("");
+  const [showModal, setShowModal] = useState(false);
+  const [meetingForm, setMeetingForm] = useState({
+    title: "",
+    description: "",
+    scheduledFor: "",
+  });
+  const [formError, setFormError] = useState("");
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  const handleCreateMeeting = () => {
-    // TODO: API integration
-    console.log("Create meeting clicked");
-    navigate("/create-meeting");
+  // Get minimum datetime (now)
+  const getMinDateTime = () => {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    return now.toISOString().slice(0, 16);
+  };
+
+  const openCreateModal = () => {
+    setMeetingForm({
+      title: "",
+      description: "",
+      scheduledFor: getMinDateTime(),
+    });
+    setFormError("");
+    setShowModal(true);
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
+    setFormError("");
+  };
+
+  const handleFormChange = (e) => {
+    const { name, value } = e.target;
+    setMeetingForm((prev) => ({ ...prev, [name]: value }));
+    if (formError) setFormError("");
+  };
+
+  const handleCreateMeeting = async (e) => {
+    e.preventDefault();
+
+    // Validation
+    if (!meetingForm.title.trim()) {
+      setFormError("Please enter a meeting title");
+      return;
+    }
+    if (!meetingForm.description.trim()) {
+      setFormError("Please enter a description");
+      return;
+    }
+    if (!meetingForm.scheduledFor) {
+      setFormError("Please select a date and time");
+      return;
+    }
+
+    setIsCreating(true);
+    setFormError("");
+
+    try {
+      const response = await api.post("/v2/meeting/create", {
+        title: meetingForm.title.trim(),
+        scheduledFor: new Date(meetingForm.scheduledFor).toISOString(),
+        description: meetingForm.description.trim(),
+      });
+
+      if (response.data.success && response.data.meetingId) {
+        setShowModal(false);
+        navigate(`/meeting/${response.data.meetingId}`);
+      } else {
+        setFormError("Failed to create meeting. Please try again.");
+      }
+    } catch (err) {
+      const message =
+        err.response?.data?.message ||
+        "Failed to create meeting. Please try again.";
+      setFormError(message);
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   const handleJoinMeeting = () => {
     if (!meetingId.trim()) {
-      alert("Please enter a meeting ID");
+      setError("Please enter a meeting ID");
       return;
     }
-    // TODO: API integration
-    console.log("Joining meeting:", meetingId);
+    setError("");
     navigate(`/meeting/${meetingId.trim()}`);
   };
 
@@ -168,10 +285,13 @@ const HomePage = () => {
               <p>Get connected in seconds</p>
             </div>
 
+            {/* Error Message */}
+            {error && <div className="error-message">{error}</div>}
+
             {/* Create Meeting */}
             <button
               className="btn btn-primary btn-large"
-              onClick={handleCreateMeeting}
+              onClick={openCreateModal}
             >
               <VideoIcon />
               Create New Meeting
@@ -192,7 +312,10 @@ const HomePage = () => {
                   className="meeting-input"
                   placeholder="Enter Meeting ID"
                   value={meetingId}
-                  onChange={(e) => setMeetingId(e.target.value)}
+                  onChange={(e) => {
+                    setMeetingId(e.target.value);
+                    if (error) setError("");
+                  }}
                   onKeyPress={handleKeyPress}
                 />
               </div>
@@ -206,6 +329,92 @@ const HomePage = () => {
           </div>
         </div>
       </main>
+
+      {/* Create Meeting Modal */}
+      {showModal && (
+        <div className="modal-overlay" onClick={closeModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Create New Meeting</h3>
+              <button className="modal-close" onClick={closeModal}>
+                <CloseIcon />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateMeeting} className="modal-form">
+              {formError && <div className="error-message">{formError}</div>}
+
+              <div className="form-group">
+                <label htmlFor="title">Meeting Title</label>
+                <input
+                  type="text"
+                  id="title"
+                  name="title"
+                  value={meetingForm.title}
+                  onChange={handleFormChange}
+                  placeholder="e.g., Team Standup"
+                  autoFocus
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="description">Description</label>
+                <textarea
+                  id="description"
+                  name="description"
+                  value={meetingForm.description}
+                  onChange={handleFormChange}
+                  placeholder="What's this meeting about?"
+                  rows={3}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="scheduledFor">
+                  <CalendarIcon />
+                  Schedule Date & Time
+                </label>
+                <input
+                  type="datetime-local"
+                  id="scheduledFor"
+                  name="scheduledFor"
+                  value={meetingForm.scheduledFor}
+                  onChange={handleFormChange}
+                  min={getMinDateTime()}
+                />
+              </div>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={closeModal}
+                  disabled={isCreating}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={isCreating}
+                >
+                  {isCreating ? (
+                    <>
+                      <LoaderIcon />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <VideoIcon />
+                      Create Meeting
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
