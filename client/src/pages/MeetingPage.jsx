@@ -1,11 +1,18 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../context";
 import api from "../services/api";
 import { connectSocket, disconnectSocket, getSocket } from "../services/socket";
 import "./MeetingPage.css";
 
-// Google Meet style icons
+// ICE Server configuration
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+  ],
+};
+
 const MicIcon = () => (
   <svg viewBox="0 0 24 24" fill="currentColor">
     <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
@@ -99,6 +106,241 @@ const MeetingPage = () => {
   const [chatInput, setChatInput] = useState("");
   const messagesEndRef = useRef(null);
 
+  // WebRTC state
+  const [localStream, setLocalStream] = useState(null);
+  const [remoteStreams, setRemoteStreams] = useState(new Map());
+  const [isMuted, setIsMuted] = useState(true);
+  const [isVideoOff, setIsVideoOff] = useState(true);
+  const peerConnectionsRef = useRef(new Map());
+  const localVideoRef = useRef(null);
+  const localStreamRef = useRef(null);
+
+  // WebRTC helper: Create peer connection for a user
+  const createPeerConnection = useCallback(
+    (userId, socket) => {
+      // Check if connection already exists
+      if (peerConnectionsRef.current.has(userId)) {
+        return peerConnectionsRef.current.get(userId);
+      }
+
+      const pc = new RTCPeerConnection(ICE_SERVERS);
+
+      // Add local stream tracks
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => {
+          pc.addTrack(track, localStreamRef.current);
+        });
+      }
+
+      // Handle ICE candidates
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log("[WebRTC] Sending ICE candidate to:", userId);
+          socket.emit("webrtc-ice-candidate", {
+            meetingId,
+            candidate: event.candidate,
+            to: userId,
+          });
+        }
+      };
+
+      // Handle remote stream
+      pc.ontrack = (event) => {
+        console.log("[WebRTC] Received remote track from:", userId);
+        const remoteStream = event.streams[0];
+        setRemoteStreams((prev) => {
+          const updated = new Map(prev);
+          updated.set(userId, remoteStream);
+          return updated;
+        });
+      };
+
+      // Handle connection state changes
+      pc.onconnectionstatechange = () => {
+        console.log(
+          `[WebRTC] Connection state with ${userId}:`,
+          pc.connectionState,
+        );
+        if (
+          pc.connectionState === "failed" ||
+          pc.connectionState === "disconnected"
+        ) {
+          console.log("[WebRTC] Connection failed/disconnected, cleaning up");
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        console.log(
+          `[WebRTC] ICE connection state with ${userId}:`,
+          pc.iceConnectionState,
+        );
+      };
+
+      peerConnectionsRef.current.set(userId, pc);
+      return pc;
+    },
+    [meetingId],
+  );
+
+  // WebRTC helper: Send offer to a user (existing user → new user)
+  const sendOffer = useCallback(
+    async (targetUserId, socket) => {
+      console.log("[WebRTC] Creating offer for:", targetUserId);
+      const pc = createPeerConnection(targetUserId, socket);
+
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        socket.emit("webrtc-offer", {
+          meetingId,
+          offer: pc.localDescription,
+          to: targetUserId,
+        });
+        console.log("[WebRTC] Offer sent to:", targetUserId);
+      } catch (err) {
+        console.error("[WebRTC] Error creating offer:", err);
+      }
+    },
+    [createPeerConnection, meetingId],
+  );
+
+  // WebRTC helper: Handle incoming offer
+  const handleOffer = useCallback(
+    async (data, socket) => {
+      const { offer, from } = data;
+      console.log("[WebRTC] Received offer from:", from);
+
+      const pc = createPeerConnection(from, socket);
+
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        socket.emit("webrtc-answer", {
+          meetingId,
+          answer: pc.localDescription,
+          to: from,
+        });
+        console.log("[WebRTC] Answer sent to:", from);
+      } catch (err) {
+        console.error("[WebRTC] Error handling offer:", err);
+      }
+    },
+    [createPeerConnection, meetingId],
+  );
+
+  // WebRTC helper: Handle incoming answer
+  const handleAnswer = useCallback(async (data) => {
+    const { answer, from } = data;
+    console.log("[WebRTC] Received answer from:", from);
+
+    const pc = peerConnectionsRef.current.get(from);
+    if (pc) {
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        console.log("[WebRTC] Remote description set for:", from);
+      } catch (err) {
+        console.error("[WebRTC] Error setting remote description:", err);
+      }
+    }
+  }, []);
+
+  // WebRTC helper: Handle incoming ICE candidate
+  const handleIceCandidate = useCallback(async (data) => {
+    const { candidate, from } = data;
+    console.log("[WebRTC] Received ICE candidate from:", from);
+
+    const pc = peerConnectionsRef.current.get(from);
+    if (pc && candidate) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        console.log("[WebRTC] ICE candidate added from:", from);
+      } catch (err) {
+        console.error("[WebRTC] Error adding ICE candidate:", err);
+      }
+    }
+  }, []);
+
+  // WebRTC helper: Close a specific peer connection
+  const closePeerConnection = useCallback((userId) => {
+    const pc = peerConnectionsRef.current.get(userId);
+    if (pc) {
+      pc.close();
+      peerConnectionsRef.current.delete(userId);
+      setRemoteStreams((prev) => {
+        const updated = new Map(prev);
+        updated.delete(userId);
+        return updated;
+      });
+      console.log("[WebRTC] Closed connection with:", userId);
+    }
+  }, []);
+
+  // WebRTC helper: Close all peer connections
+  const closeAllPeerConnections = useCallback(() => {
+    peerConnectionsRef.current.forEach((pc, userId) => {
+      pc.close();
+      console.log("[WebRTC] Closed connection with:", userId);
+    });
+    peerConnectionsRef.current.clear();
+    setRemoteStreams(new Map());
+  }, []);
+
+  // Get user media on mount
+  useEffect(() => {
+    const initMedia = async () => {
+      try {
+        console.log("[WebRTC] Requesting user media...");
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        });
+        console.log("[WebRTC] Got local stream");
+
+        // Disable tracks by default (mic and camera off)
+        stream.getAudioTracks().forEach((track) => {
+          track.enabled = false;
+        });
+        stream.getVideoTracks().forEach((track) => {
+          track.enabled = false;
+        });
+
+        setLocalStream(stream);
+        localStreamRef.current = stream;
+      } catch (err) {
+        console.error("[WebRTC] Error getting user media:", err);
+        // Try with just audio if video fails
+        try {
+          const audioStream = await navigator.mediaDevices.getUserMedia({
+            video: false,
+            audio: true,
+          });
+          // Disable audio by default
+          audioStream.getAudioTracks().forEach((track) => {
+            track.enabled = false;
+          });
+          setLocalStream(audioStream);
+          localStreamRef.current = audioStream;
+        } catch (audioErr) {
+          console.error("[WebRTC] Error getting audio:", audioErr);
+        }
+      }
+    };
+
+    initMedia();
+
+    // Cleanup on unmount
+    return () => {
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => track.stop());
+        localStreamRef.current = null;
+      }
+      closeAllPeerConnections();
+    };
+  }, [closeAllPeerConnections]);
+
   // Fetch meeting data on mount
   useEffect(() => {
     const fetchMeeting = async () => {
@@ -136,7 +378,7 @@ const MeetingPage = () => {
 
   // Socket connection and event handlers
   useEffect(() => {
-    if (!meeting || !meetingId) return;
+    if (!meeting || !meetingId || !localStreamRef.current) return;
 
     let isMounted = true;
 
@@ -151,13 +393,14 @@ const MeetingPage = () => {
       console.log("Participants in room:", data.participants);
       // Set total participant count from room-joined (includes everyone)
       setTotalParticipants(data.participants?.length || 1);
+      // Wait for offers from existing participants (they initiate)
     };
 
     const handleChatHistory = (history) => {
       if (!isMounted) return;
       console.log("Chat history received:", history);
       // Load last 50 messages
-      const recentMessages = Array.isArray(history) ? history.slice(-50) : [];
+      const recentMessages = Array.isArray(history) ? history.slice(-100) : [];
       setMessages(recentMessages);
     };
 
@@ -181,6 +424,12 @@ const MeetingPage = () => {
       });
       // Increment total count
       setTotalParticipants((prev) => prev + 1);
+
+      // As existing participant, initiate WebRTC offer to new user
+      if (localStreamRef.current) {
+        console.log("[WebRTC] Initiating offer to new user:", data.userId);
+        sendOffer(data.userId, socket);
+      }
     };
 
     const handleUserLeft = (data) => {
@@ -189,6 +438,26 @@ const MeetingPage = () => {
       setParticipants((prev) => prev.filter((p) => p.userId !== data.userId));
       // Decrement total count
       setTotalParticipants((prev) => Math.max(1, prev - 1));
+      // Close peer connection with leaving user
+      closePeerConnection(data.userId);
+    };
+
+    // WebRTC event handlers
+    const handleWebRTCOffer = (data) => {
+      if (!isMounted) return;
+      console.log("[WebRTC] Received offer event:", data.from);
+      handleOffer(data, socket);
+    };
+
+    const handleWebRTCAnswer = (data) => {
+      if (!isMounted) return;
+      console.log("[WebRTC] Received answer event:", data.from);
+      handleAnswer(data);
+    };
+
+    const handleWebRTCIceCandidate = (data) => {
+      if (!isMounted) return;
+      handleIceCandidate(data);
     };
 
     // Register event listeners
@@ -197,6 +466,9 @@ const MeetingPage = () => {
     socket.on("receive-message", handleReceiveMessage);
     socket.on("user-joined", handleUserJoined);
     socket.on("user-left", handleUserLeft);
+    socket.on("webrtc-offer-received", handleWebRTCOffer);
+    socket.on("webrtc-answer-received", handleWebRTCAnswer);
+    socket.on("webrtc-ice-candidate-received", handleWebRTCIceCandidate);
 
     // Join the room only if not already connected
     if (!socket.hasJoinedRoom) {
@@ -212,10 +484,25 @@ const MeetingPage = () => {
       socket.off("receive-message", handleReceiveMessage);
       socket.off("user-joined", handleUserJoined);
       socket.off("user-left", handleUserLeft);
+      socket.off("webrtc-offer-received", handleWebRTCOffer);
+      socket.off("webrtc-answer-received", handleWebRTCAnswer);
+      socket.off("webrtc-ice-candidate-received", handleWebRTCIceCandidate);
       socket.hasJoinedRoom = false;
+      closeAllPeerConnections();
       disconnectSocket();
     };
-  }, [meeting, meetingId, user]);
+  }, [
+    meeting,
+    meetingId,
+    user,
+    localStream,
+    sendOffer,
+    handleOffer,
+    handleAnswer,
+    handleIceCandidate,
+    closePeerConnection,
+    closeAllPeerConnections,
+  ]);
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
@@ -237,7 +524,35 @@ const MeetingPage = () => {
     setChatOpen((prev) => !prev);
   };
 
+  // Toggle microphone mute
+  const toggleMute = () => {
+    if (localStreamRef.current) {
+      const audioTracks = localStreamRef.current.getAudioTracks();
+      audioTracks.forEach((track) => {
+        track.enabled = !track.enabled;
+      });
+      setIsMuted((prev) => !prev);
+    }
+  };
+
+  // Toggle video on/off
+  const toggleVideo = () => {
+    if (localStreamRef.current) {
+      const videoTracks = localStreamRef.current.getVideoTracks();
+      videoTracks.forEach((track) => {
+        track.enabled = !track.enabled;
+      });
+      setIsVideoOff((prev) => !prev);
+    }
+  };
+
   const handleLeaveMeeting = () => {
+    // Stop local media tracks
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
+    }
+    // Close all peer connections
+    closeAllPeerConnections();
     disconnectSocket();
     navigate("/home");
   };
@@ -302,35 +617,76 @@ const MeetingPage = () => {
 
       <main className="meeting-main">
         <div className="video-grid">
-          {/* Current user */}
-          <div className="video-placeholder">
-            <div className="user-avatar-large">
-              {user?.name?.charAt(0) || "U"}
-            </div>
+          {/* Current user video */}
+          <div className="video-container">
+            {localStream && !isVideoOff ? (
+              <video
+                ref={(el) => {
+                  localVideoRef.current = el;
+                  if (el && el.srcObject !== localStream) {
+                    el.srcObject = localStream;
+                  }
+                }}
+                autoPlay
+                muted
+                playsInline
+                className="video-element local-video"
+              />
+            ) : (
+              <div className="user-avatar-large">
+                {user?.name?.charAt(0) || "U"}
+              </div>
+            )}
             <span className="participant-name">
               {user?.name || "You"} (You)
+              {isMuted && " 🔇 "}
             </span>
           </div>
-          {/* Other participants - only show if they have name and are not current user */}
+
+          {/* Remote participants */}
           {participants
             .filter((p) => p.userId !== user?._id && p.name)
-            .map((participant) => (
-              <div key={participant.userId} className="video-placeholder">
-                <div className="user-avatar-large">
-                  {participant.name.charAt(0)}
+            .map((participant) => {
+              const remoteStream = remoteStreams.get(participant.userId);
+              return (
+                <div key={participant.userId} className="video-container">
+                  {remoteStream ? (
+                    <video
+                      autoPlay
+                      playsInline
+                      className="video-element"
+                      ref={(el) => {
+                        if (el && el.srcObject !== remoteStream) {
+                          el.srcObject = remoteStream;
+                        }
+                      }}
+                    />
+                  ) : (
+                    <div className="user-avatar-large">
+                      {participant.name.charAt(0)}
+                    </div>
+                  )}
+                  <span className="participant-name">{participant.name}</span>
                 </div>
-                <span className="participant-name">{participant.name}</span>
-              </div>
-            ))}
+              );
+            })}
         </div>
       </main>
 
       <footer className="meeting-controls">
-        <button className="control-btn" title="Toggle Microphone">
-          <MicIcon />
+        <button
+          className={`control-btn ${isMuted ? "muted" : ""}`}
+          onClick={toggleMute}
+          title={isMuted ? "Unmute" : "Mute"}
+        >
+          {isMuted ? <MicOffIcon /> : <MicIcon />}
         </button>
-        <button className="control-btn" title="Toggle Camera">
-          <VideoIcon />
+        <button
+          className={`control-btn ${isVideoOff ? "video-off" : ""}`}
+          onClick={toggleVideo}
+          title={isVideoOff ? "Turn on camera" : "Turn off camera"}
+        >
+          {isVideoOff ? <VideoOffIcon /> : <VideoIcon />}
         </button>
         <button
           className={`control-btn ${chatOpen ? "active" : ""}`}
