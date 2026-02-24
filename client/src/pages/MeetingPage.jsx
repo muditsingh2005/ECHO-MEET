@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../context";
 import api from "../services/api";
-import { connectSocket, disconnectSocket } from "../services/socket";
+import { connectSocket, disconnectSocket, getSocket } from "../services/socket";
 import "./MeetingPage.css";
 
 // Google Meet style icons
@@ -70,6 +70,18 @@ const CheckIcon = () => (
   </svg>
 );
 
+const SendIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor">
+    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor">
+    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+  </svg>
+);
+
 const MeetingPage = () => {
   const { meetingId } = useParams();
   const { user } = useAuth();
@@ -80,6 +92,12 @@ const MeetingPage = () => {
   const [error, setError] = useState("");
   const [participants, setParticipants] = useState([]);
   const [totalParticipants, setTotalParticipants] = useState(1); // Include self
+
+  // Chat state
+  const [messages, setMessages] = useState([]);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState("");
+  const messagesEndRef = useRef(null);
 
   // Fetch meeting data on mount
   useEffect(() => {
@@ -135,9 +153,18 @@ const MeetingPage = () => {
       setTotalParticipants(data.participants?.length || 1);
     };
 
-    const handleChatHistory = (messages) => {
+    const handleChatHistory = (history) => {
       if (!isMounted) return;
-      console.log("Chat history received:", messages);
+      console.log("Chat history received:", history);
+      // Load last 50 messages
+      const recentMessages = Array.isArray(history) ? history.slice(-50) : [];
+      setMessages(recentMessages);
+    };
+
+    const handleReceiveMessage = (message) => {
+      if (!isMounted) return;
+      console.log("New message received:", message);
+      setMessages((prev) => [...prev, message]);
     };
 
     const handleUserJoined = (data) => {
@@ -167,6 +194,7 @@ const MeetingPage = () => {
     // Register event listeners
     socket.on("room-joined", handleRoomJoined);
     socket.on("chat-history", handleChatHistory);
+    socket.on("receive-message", handleReceiveMessage);
     socket.on("user-joined", handleUserJoined);
     socket.on("user-left", handleUserLeft);
 
@@ -181,12 +209,33 @@ const MeetingPage = () => {
       isMounted = false;
       socket.off("room-joined", handleRoomJoined);
       socket.off("chat-history", handleChatHistory);
+      socket.off("receive-message", handleReceiveMessage);
       socket.off("user-joined", handleUserJoined);
       socket.off("user-left", handleUserLeft);
       socket.hasJoinedRoom = false;
       disconnectSocket();
     };
   }, [meeting, meetingId, user]);
+
+  // Scroll to bottom when new messages arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const handleSendMessage = (e) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+
+    const socket = getSocket();
+    if (socket) {
+      socket.emit("send-message", { meetingId, content: chatInput.trim() });
+      setChatInput("");
+    }
+  };
+
+  const toggleChat = () => {
+    setChatOpen((prev) => !prev);
+  };
 
   const handleLeaveMeeting = () => {
     disconnectSocket();
@@ -283,7 +332,11 @@ const MeetingPage = () => {
         <button className="control-btn" title="Toggle Camera">
           <VideoIcon />
         </button>
-        <button className="control-btn" title="Chat">
+        <button
+          className={`control-btn ${chatOpen ? "active" : ""}`}
+          onClick={toggleChat}
+          title="Chat"
+        >
           <ChatIcon />
         </button>
         <button
@@ -294,6 +347,61 @@ const MeetingPage = () => {
           <CallEndIcon />
         </button>
       </footer>
+
+      {/* Chat Panel */}
+      <div className={`chat-panel ${chatOpen ? "open" : ""}`}>
+        <div className="chat-header">
+          <h3>In-call messages</h3>
+          <button className="chat-close-btn" onClick={toggleChat}>
+            <CloseIcon />
+          </button>
+        </div>
+        <div className="chat-messages">
+          {messages.length === 0 ? (
+            <div className="chat-empty">
+              <p>No messages yet</p>
+              <span>Messages are only visible to people in the call</span>
+            </div>
+          ) : (
+            messages.map((msg, index) => (
+              <div
+                key={msg._id || index}
+                className={`chat-message ${msg.senderId === user?._id ? "own" : ""}`}
+              >
+                <div className="message-header">
+                  <span className="message-sender">
+                    {msg.senderId === user?._id ? "You" : msg.name}
+                  </span>
+                  <span className="message-time">
+                    {new Date(msg.createdAt).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </div>
+                <p className="message-content">{msg.content}</p>
+              </div>
+            ))
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+        <form className="chat-input-form" onSubmit={handleSendMessage}>
+          <input
+            type="text"
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            placeholder="Send a message to everyone"
+            className="chat-input"
+          />
+          <button
+            type="submit"
+            className="chat-send-btn"
+            disabled={!chatInput.trim()}
+          >
+            <SendIcon />
+          </button>
+        </form>
+      </div>
     </div>
   );
 };
