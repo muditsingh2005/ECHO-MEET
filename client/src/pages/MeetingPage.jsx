@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../context";
+import api from "../services/api";
 import "./MeetingPage.css";
 
 // Google Meet style icons
@@ -73,6 +74,44 @@ const MeetingPage = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
+  const [meeting, setMeeting] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  // Fetch meeting data on mount
+  useEffect(() => {
+    const fetchMeeting = async () => {
+      if (!meetingId) {
+        navigate("/home");
+        return;
+      }
+
+      setLoading(true);
+      setError("");
+
+      try {
+        const response = await api.get(`/v2/meeting/${meetingId}`);
+        if (response.data.success && response.data.meeting) {
+          setMeeting(response.data.meeting);
+        } else {
+          setError("Meeting not found");
+          setTimeout(() => navigate("/home"), 2000);
+        }
+      } catch (err) {
+        const message = err.response?.data?.message || "Failed to load meeting";
+        if (err.response?.status === 404) {
+          setError("Meeting not found");
+          setTimeout(() => navigate("/home"), 2000);
+        } else {
+          setError(message);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMeeting();
+  }, [meetingId, navigate]);
 
   const handleLeaveMeeting = () => {
     navigate("/home");
@@ -88,10 +127,35 @@ const MeetingPage = () => {
     }
   };
 
+  // Loading state
+  if (loading) {
+    return (
+      <div className="meeting-page">
+        <div className="meeting-loading">
+          <div className="spinner"></div>
+          <p>Joining meeting...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="meeting-page">
+        <div className="meeting-error">
+          <p>{error}</p>
+          <span>Redirecting to home...</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="meeting-page">
       <header className="meeting-header">
         <div className="meeting-info">
+          <span className="meeting-title">{meeting?.title || "Meeting"}</span>
           <span className="meeting-id">{meetingId}</span>
           <button
             className={`copy-btn ${copied ? "copied" : ""}`}
