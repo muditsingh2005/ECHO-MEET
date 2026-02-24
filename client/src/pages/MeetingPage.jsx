@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../context";
 import api from "../services/api";
+import { connectSocket, disconnectSocket } from "../services/socket";
 import "./MeetingPage.css";
 
 // Google Meet style icons
@@ -77,6 +78,8 @@ const MeetingPage = () => {
   const [meeting, setMeeting] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [participants, setParticipants] = useState([]);
+  const [totalParticipants, setTotalParticipants] = useState(1); // Include self
 
   // Fetch meeting data on mount
   useEffect(() => {
@@ -113,7 +116,80 @@ const MeetingPage = () => {
     fetchMeeting();
   }, [meetingId, navigate]);
 
+  // Socket connection and event handlers
+  useEffect(() => {
+    if (!meeting || !meetingId) return;
+
+    let isMounted = true;
+
+    // Connect socket
+    const socket = connectSocket();
+
+    // Event handlers
+    const handleRoomJoined = (data) => {
+      if (!isMounted) return;
+      console.log("Room joined - Full data:", JSON.stringify(data, null, 2));
+      console.log("Current user ID:", user?._id);
+      console.log("Participants in room:", data.participants);
+      // Set total participant count from room-joined (includes everyone)
+      setTotalParticipants(data.participants?.length || 1);
+    };
+
+    const handleChatHistory = (messages) => {
+      if (!isMounted) return;
+      console.log("Chat history received:", messages);
+    };
+
+    const handleUserJoined = (data) => {
+      if (!isMounted) return;
+      console.log("User joined event received:", JSON.stringify(data, null, 2));
+      setParticipants((prev) => {
+        // Avoid duplicates - check by userId
+        if (prev.some((p) => p.userId === data.userId)) {
+          console.log("User already in participants, skipping");
+          return prev;
+        }
+        console.log("Adding user to participants");
+        return [...prev, data];
+      });
+      // Increment total count
+      setTotalParticipants((prev) => prev + 1);
+    };
+
+    const handleUserLeft = (data) => {
+      if (!isMounted) return;
+      console.log("User left:", data);
+      setParticipants((prev) => prev.filter((p) => p.userId !== data.userId));
+      // Decrement total count
+      setTotalParticipants((prev) => Math.max(1, prev - 1));
+    };
+
+    // Register event listeners
+    socket.on("room-joined", handleRoomJoined);
+    socket.on("chat-history", handleChatHistory);
+    socket.on("user-joined", handleUserJoined);
+    socket.on("user-left", handleUserLeft);
+
+    // Join the room only if not already connected
+    if (!socket.hasJoinedRoom) {
+      socket.emit("join-room", { meetingId });
+      socket.hasJoinedRoom = true;
+    }
+
+    // Cleanup on unmount
+    return () => {
+      isMounted = false;
+      socket.off("room-joined", handleRoomJoined);
+      socket.off("chat-history", handleChatHistory);
+      socket.off("user-joined", handleUserJoined);
+      socket.off("user-left", handleUserLeft);
+      socket.hasJoinedRoom = false;
+      disconnectSocket();
+    };
+  }, [meeting, meetingId, user]);
+
   const handleLeaveMeeting = () => {
+    disconnectSocket();
     navigate("/home");
   };
 
@@ -165,6 +241,10 @@ const MeetingPage = () => {
             {copied ? <CheckIcon /> : <CopyIcon />}
             {copied ? "Copied!" : "Copy ID"}
           </button>
+          <span className="participants-count">
+            {totalParticipants} participant
+            {totalParticipants !== 1 ? "s" : ""}
+          </span>
         </div>
         <button className="btn-leave" onClick={handleLeaveMeeting}>
           Leave Meeting
@@ -173,12 +253,26 @@ const MeetingPage = () => {
 
       <main className="meeting-main">
         <div className="video-grid">
+          {/* Current user */}
           <div className="video-placeholder">
             <div className="user-avatar-large">
               {user?.name?.charAt(0) || "U"}
             </div>
-            <span className="participant-name">{user?.name || "You"}</span>
+            <span className="participant-name">
+              {user?.name || "You"} (You)
+            </span>
           </div>
+          {/* Other participants - only show if they have name and are not current user */}
+          {participants
+            .filter((p) => p.userId !== user?._id && p.name)
+            .map((participant) => (
+              <div key={participant.userId} className="video-placeholder">
+                <div className="user-avatar-large">
+                  {participant.name.charAt(0)}
+                </div>
+                <span className="participant-name">{participant.name}</span>
+              </div>
+            ))}
         </div>
       </main>
 

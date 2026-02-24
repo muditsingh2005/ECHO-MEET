@@ -74,6 +74,15 @@
   border-color: #86efac;
 }
 
+.participants-count {
+  font-size: 0.8rem;
+  color: #64748b;
+  background: #e0e7ff;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-weight: 500;
+}
+
 .btn-leave {
   background: #ef4444;
   color: white;
@@ -159,6 +168,7 @@
 
 .video-grid {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 16px;
@@ -169,7 +179,9 @@
 
 .video-placeholder {
   width: 100%;
-  max-width: 800px;
+  max-width: 400px;
+  min-width: 280px;
+  flex: 1 1 300px;
   aspect-ratio: 16 / 9;
   background: white;
   border-radius: 20px;
@@ -180,6 +192,11 @@
   gap: 16px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
   border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* Single participant - larger size */
+.video-grid .video-placeholder:only-child {
+  max-width: 800px;
 }
 
 .user-avatar-large {

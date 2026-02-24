@@ -1,6 +1,7 @@
 import { Meeting } from "../models/Meeting.model.js";
 import { Participant } from "../models/Participant.model.js";
 import { Message } from "../models/Message.model.js";
+import { User } from "../models/User.model.js";
 import {
   addUser,
   removeUser,
@@ -82,6 +83,27 @@ export const registerRoomHandlers = (socket, io) => {
         participants,
       });
 
+      // Emit user-joined events for all existing participants to the new joiner
+      const existingParticipants = participants.filter(
+        (participantId) => participantId !== socket.user.userId,
+      );
+
+      for (const participantId of existingParticipants) {
+        try {
+          const user = await User.findById(participantId).select("name email");
+          if (user) {
+            socket.emit("user-joined", {
+              userId: participantId,
+              name: user.name,
+              email: user.email,
+            });
+          }
+        } catch (err) {
+          console.error(`Error fetching user ${participantId}:`, err);
+        }
+      }
+
+      // Notify other participants that this user joined
       socket.to(meetingId).emit("user-joined", {
         userId: socket.user.userId,
         name: socket.user.name,
