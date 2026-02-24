@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from "react-router-dom";
-import { LoginPage, HomePage, MeetingPage } from "./pages";
+import { LoginPage, HomePage, MeetingPage, DashboardPage } from "./pages";
 import { ProtectedRoute } from "./components";
 import "./App.css";
 
@@ -27,7 +27,7 @@ function App() {
         path="/dashboard"
         element={
           <ProtectedRoute>
-            <h1>Dashboard (Coming Soon)</h1>
+            <DashboardPage />
           </ProtectedRoute>
         }
       />
