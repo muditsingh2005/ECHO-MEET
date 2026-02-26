@@ -99,6 +99,7 @@ const MeetingPage = () => {
   const [error, setError] = useState("");
   const [participants, setParticipants] = useState([]);
   const [totalParticipants, setTotalParticipants] = useState(1); // Include self
+  const [isHost, setIsHost] = useState(false);
 
   // Chat state
   const [messages, setMessages] = useState([]);
@@ -356,6 +357,10 @@ const MeetingPage = () => {
         const response = await api.get(`/v2/meeting/${meetingId}`);
         if (response.data.success && response.data.meeting) {
           setMeeting(response.data.meeting);
+          // Determine if current user is the host
+          const hostId =
+            response.data.meeting.hostId?._id || response.data.meeting.hostId;
+          setIsHost(hostId === user?._id);
         } else {
           setError("Meeting not found");
           setTimeout(() => navigate("/home"), 2000);
@@ -374,7 +379,7 @@ const MeetingPage = () => {
     };
 
     fetchMeeting();
-  }, [meetingId, navigate]);
+  }, [meetingId, navigate, user?._id]);
 
   // Socket connection and event handlers
   useEffect(() => {
@@ -460,6 +465,46 @@ const MeetingPage = () => {
       handleIceCandidate(data);
     };
 
+    // Host control event handlers
+    const handleUserRemoved = (data) => {
+      if (!isMounted) return;
+      console.log("User removed:", data);
+      const { userId } = data;
+      // Close peer connection with removed user
+      closePeerConnection(userId);
+      // Remove from participants list
+      setParticipants((prev) => prev.filter((p) => p.userId !== userId));
+      setTotalParticipants((prev) => Math.max(1, prev - 1));
+    };
+
+    const handleMeetingEnded = (data) => {
+      if (!isMounted) return;
+      console.log("Meeting ended:", data);
+      // Close all peer connections
+      closeAllPeerConnections();
+      // Stop local media
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+      // Navigate to home
+      alert("The meeting has ended.");
+      navigate("/home");
+    };
+
+    const handleRemovedFromMeeting = (data) => {
+      if (!isMounted) return;
+      console.log("Removed from meeting:", data);
+      // Close all peer connections
+      closeAllPeerConnections();
+      // Stop local media
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+      // Navigate to home with message
+      alert(data.reason || "You have been removed from the meeting.");
+      navigate("/home");
+    };
+
     // Register event listeners
     socket.on("room-joined", handleRoomJoined);
     socket.on("chat-history", handleChatHistory);
@@ -469,6 +514,9 @@ const MeetingPage = () => {
     socket.on("webrtc-offer-received", handleWebRTCOffer);
     socket.on("webrtc-answer-received", handleWebRTCAnswer);
     socket.on("webrtc-ice-candidate-received", handleWebRTCIceCandidate);
+    socket.on("user-removed", handleUserRemoved);
+    socket.on("meeting-ended", handleMeetingEnded);
+    socket.on("removed-from-meeting", handleRemovedFromMeeting);
 
     // Join the room only if not already connected
     if (!socket.hasJoinedRoom) {
@@ -487,6 +535,9 @@ const MeetingPage = () => {
       socket.off("webrtc-offer-received", handleWebRTCOffer);
       socket.off("webrtc-answer-received", handleWebRTCAnswer);
       socket.off("webrtc-ice-candidate-received", handleWebRTCIceCandidate);
+      socket.off("user-removed", handleUserRemoved);
+      socket.off("meeting-ended", handleMeetingEnded);
+      socket.off("removed-from-meeting", handleRemovedFromMeeting);
       socket.hasJoinedRoom = false;
       closeAllPeerConnections();
       disconnectSocket();
@@ -502,6 +553,7 @@ const MeetingPage = () => {
     handleIceCandidate,
     closePeerConnection,
     closeAllPeerConnections,
+    navigate,
   ]);
 
   // Scroll to bottom when new messages arrive
@@ -543,6 +595,30 @@ const MeetingPage = () => {
         track.enabled = !track.enabled;
       });
       setIsVideoOff((prev) => !prev);
+    }
+  };
+
+  // Host control: Remove user from meeting
+  const handleRemoveUser = (targetUserId, targetName) => {
+    if (!isHost) return;
+    if (window.confirm(`Remove ${targetName} from the meeting?`)) {
+      const socket = getSocket();
+      if (socket) {
+        socket.emit("remove-user", { meetingId, targetUserId });
+      }
+    }
+  };
+
+  // Host control: End meeting for everyone
+  const handleEndMeeting = () => {
+    if (!isHost) return;
+    if (
+      window.confirm("Are you sure you want to end this meeting for everyone?")
+    ) {
+      const socket = getSocket();
+      if (socket) {
+        socket.emit("end-meeting", { meetingId });
+      }
     }
   };
 
@@ -609,6 +685,7 @@ const MeetingPage = () => {
             {totalParticipants} participant
             {totalParticipants !== 1 ? "s" : ""}
           </span>
+          {isHost && <span className="host-badge">Host</span>}
         </div>
         <button className="btn-leave" onClick={handleLeaveMeeting}>
           Leave Meeting
@@ -667,6 +744,18 @@ const MeetingPage = () => {
                     </div>
                   )}
                   <span className="participant-name">{participant.name}</span>
+                  {/* Host can remove participants */}
+                  {isHost && (
+                    <button
+                      className="remove-participant-btn"
+                      onClick={() =>
+                        handleRemoveUser(participant.userId, participant.name)
+                      }
+                      title={`Remove ${participant.name}`}
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -698,10 +787,20 @@ const MeetingPage = () => {
         <button
           className="control-btn btn-end"
           onClick={handleLeaveMeeting}
-          title="End Call"
+          title="Leave Call"
         >
           <CallEndIcon />
         </button>
+        {/* Host-only: End meeting for all */}
+        {isHost && (
+          <button
+            className="btn-end-meeting"
+            onClick={handleEndMeeting}
+            title="End meeting for everyone"
+          >
+            End Meeting
+          </button>
+        )}
       </footer>
 
       {/* Chat Panel */}
