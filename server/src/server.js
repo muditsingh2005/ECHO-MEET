@@ -6,9 +6,11 @@ import connectDB from "./config/db.js";
 import { socketAuthMiddleware } from "./middleware/socket.auth.middleware.js";
 import { registerRoomHandlers } from "./sockets/room.handler.js";
 
-dotenv.config({
-  path: "../.env",
-});
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({ path: "../.env" });
+} else {
+  dotenv.config();
+}
 
 const httpServer = http.createServer(app);
 
@@ -24,7 +26,7 @@ io.use(socketAuthMiddleware);
 
 io.on("connection", (socket) => {
   console.log(`User connected: ${socket.user.userId}`);
-  
+
   registerRoomHandlers(socket, io);
 });
 
