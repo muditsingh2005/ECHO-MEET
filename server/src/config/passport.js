@@ -2,6 +2,15 @@ import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { User } from "../models/User.model.js";
 
+console.log(
+  "[AUTH] Google OAuth env sanity:",
+  JSON.stringify({
+    hasGoogleClientId: Boolean(process.env.GOOGLE_CLIENT_ID),
+    hasGoogleClientSecret: Boolean(process.env.GOOGLE_CLIENT_SECRET),
+    googleCallbackUrl: process.env.GOOGLE_CALLBACK_URL || null,
+  }),
+);
+
 // Google OAuth 2.0 Strategy Configuration
 passport.use(
   new GoogleStrategy(
@@ -48,8 +57,8 @@ passport.use(
       } catch (error) {
         return done(error, null);
       }
-    }
-  )
+    },
+  ),
 );
 
 // Serialize user id to session
