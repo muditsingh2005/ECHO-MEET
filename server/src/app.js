@@ -28,8 +28,8 @@ const corsOptions = {
       }),
     );
 
-    if (!origin && process.env.NODE_ENV !== "production") {
-      console.log("[CORS] decision: allow (no origin in non-production)");
+    if (!origin) {
+      console.log("[CORS] decision: allow (no origin)");
       return callback(null, true);
     }
 
