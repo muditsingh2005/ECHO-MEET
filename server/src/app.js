@@ -7,6 +7,7 @@ import authRoutes from "./routes/auth.routes.js";
 import meetingRoutes from "./routes/meeting.routes.js";
 
 const app = express();
+app.set("trust proxy", 1);
 
 const allowedOrigins =
   process.env.NODE_ENV === "production"
