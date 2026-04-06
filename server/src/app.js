@@ -69,7 +69,7 @@ app.use((req, res, next) => {
 app.use(cors(corsOptions));
 
 const authRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  // windowMs: 15 * 60 * 1000, // 15 minutes
   // max: 20, // Limit each IP to 40 requests per window
   message: {
     error:
