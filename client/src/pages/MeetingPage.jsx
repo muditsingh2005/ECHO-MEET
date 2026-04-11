@@ -393,12 +393,14 @@ const MeetingPage = () => {
     // Event handlers
     const handleRoomJoined = (data) => {
       if (!isMounted) return;
-      console.log("Room joined - Full data:", JSON.stringify(data, null, 2));
-      console.log("Current user ID:", user?._id);
-      console.log("Participants in room:", data.participants);
-      // Set total participant count from room-joined (includes everyone)
+      console.log("Room joined:", JSON.stringify(data, null, 2));
       setTotalParticipants(data.participants?.length || 1);
-      // Wait for offers from existing participants (they initiate)
+
+      // Populate participant list from existing participants sent by server.
+      // Do NOT send offers here — existing participants will send offers to us.
+      if (data.existingParticipants?.length) {
+        setParticipants(data.existingParticipants);
+      }
     };
 
     const handleChatHistory = (history) => {

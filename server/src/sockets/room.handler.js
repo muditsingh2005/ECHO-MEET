@@ -77,22 +77,18 @@ export const registerRoomHandlers = (socket, io) => {
 
       socket.emit("chat-history", formattedHistory);
 
-      socket.emit("room-joined", {
-        meetingId,
-        userId: socket.user.userId,
-        participants,
-      });
-
-      // Emit user-joined events for all existing participants to the new joiner
-      const existingParticipants = participants.filter(
+      // Gather details for existing participants (sent as part of room-joined,
+      // NOT as "user-joined" events — so the new joiner won't create offers)
+      const existingParticipantIds = participants.filter(
         (participantId) => participantId !== socket.user.userId,
       );
 
-      for (const participantId of existingParticipants) {
+      const existingParticipantDetails = [];
+      for (const participantId of existingParticipantIds) {
         try {
           const user = await User.findById(participantId).select("name email");
           if (user) {
-            socket.emit("user-joined", {
+            existingParticipantDetails.push({
               userId: participantId,
               name: user.name,
               email: user.email,
@@ -103,7 +99,16 @@ export const registerRoomHandlers = (socket, io) => {
         }
       }
 
-      // Notify other participants that this user joined
+      // Send room info + existing participant details to the new joiner
+      socket.emit("room-joined", {
+        meetingId,
+        userId: socket.user.userId,
+        participants,
+        existingParticipants: existingParticipantDetails,
+      });
+
+      // Notify ONLY existing participants that a new user joined.
+      // Existing participants will create offers → new joiner responds with answers.
       socket.to(meetingId).emit("user-joined", {
         userId: socket.user.userId,
         name: socket.user.name,
