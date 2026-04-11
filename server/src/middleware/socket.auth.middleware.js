@@ -1,16 +1,24 @@
 import jwt from "jsonwebtoken";
-import cookie from "cookie";
+
+// ---------------------------------------------------------------------------
+// Socket Auth — Extracts token from handshake auth object or cookies
+// ---------------------------------------------------------------------------
 
 export const socketAuthMiddleware = async (socket, next) => {
   try {
-    const cookies = socket.handshake.headers.cookie;
+    let token = null;
 
-    if (!cookies) {
-      return next(new Error("Authentication error: No cookies provided"));
+    // Primary: handshake auth object (sent by client via socket.io auth option)
+    if (socket.handshake.auth?.token) {
+      token = socket.handshake.auth.token;
     }
 
-    const parsedCookies = cookie.parse(cookies);
-    const token = parsedCookies.accessToken;
+    // Fallback: cookies (for local development)
+    if (!token && socket.handshake.headers.cookie) {
+      const { parse } = await import("cookie");
+      const parsedCookies = parse(socket.handshake.headers.cookie);
+      token = parsedCookies.accessToken;
+    }
 
     if (!token) {
       return next(new Error("Authentication error: No token provided"));

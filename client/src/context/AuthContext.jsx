@@ -5,10 +5,37 @@ import {
   useEffect,
   useCallback,
 } from "react";
-import api from "../services/api";
+import api, { TokenStorage } from "../services/api";
 import { disconnectSocket } from "../services/socket";
 
 const AuthContext = createContext(null);
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Extract OAuth tokens from URL params and clean the address bar. */
+const extractTokensFromURL = () => {
+  const params = new URLSearchParams(window.location.search);
+  const accessToken = params.get("accessToken");
+  const refreshToken = params.get("refreshToken");
+
+  if (accessToken) {
+    TokenStorage.setTokens(accessToken, refreshToken);
+
+    // Remove tokens from the URL without triggering a reload
+    const cleanURL = window.location.pathname;
+    window.history.replaceState({}, "", cleanURL);
+
+    return true;
+  }
+
+  return false;
+};
+
+// ---------------------------------------------------------------------------
+// Provider
+// ---------------------------------------------------------------------------
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -18,11 +45,23 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const checkAuth = async () => {
       try {
+        // If redirected from OAuth, extract tokens first
+        extractTokensFromURL();
+
+        // Only attempt auth check if we have a stored token
+        const token = TokenStorage.getAccessToken();
+        if (!token) {
+          setUser(null);
+          setIsAuthenticated(false);
+          return;
+        }
+
         const response = await api.get("/v1/auth/me");
         setUser(response.data.user);
         setIsAuthenticated(true);
-      } catch (error) {
+      } catch {
         // Not authenticated or token expired
+        TokenStorage.clearTokens();
         setUser(null);
         setIsAuthenticated(false);
       } finally {
@@ -39,13 +78,13 @@ export const AuthProvider = ({ children }) => {
 
   const logout = useCallback(async () => {
     try {
-      await api.post("/v1/auth/logout");
+      const refreshToken = TokenStorage.getRefreshToken();
+      await api.post("/v1/auth/logout", { refreshToken });
     } catch (error) {
-      // Continue with logout even if API fails
       console.error("[Auth] Logout API error:", error.message);
     } finally {
-      // Always cleanup regardless of API response
       disconnectSocket();
+      TokenStorage.clearTokens();
       setUser(null);
       setIsAuthenticated(false);
       window.location.href = "/login";
@@ -62,7 +101,7 @@ export const AuthProvider = ({ children }) => {
       setUser(response.data.user);
       setIsAuthenticated(true);
       return response.data.user;
-    } catch (error) {
+    } catch {
       setUser(null);
       setIsAuthenticated(false);
       return null;

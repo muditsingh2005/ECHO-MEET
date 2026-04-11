@@ -1,36 +1,31 @@
 import jwt from "jsonwebtoken";
 
+// ---------------------------------------------------------------------------
+// verifyJWT — Extracts token from Authorization header or cookies (fallback)
+// ---------------------------------------------------------------------------
+
 export const verifyJWT = (req, res, next) => {
   try {
-    // 🔍 DEBUG: Log what the server actually receives
-    console.log("[AUTH DEBUG] verifyJWT called:", JSON.stringify({
-      url: req.originalUrl,
-      hasCookiesObj: !!req.cookies,
-      cookieKeys: req.cookies ? Object.keys(req.cookies) : [],
-      hasAccessTokenCookie: !!req.cookies?.accessToken,
-      hasAuthHeader: !!req.headers.authorization,
-      origin: req.headers.origin || null,
-      cookieHeader: req.headers.cookie ? req.headers.cookie.substring(0, 100) + "..." : "(no cookie header)",
-    }));
+    let token = null;
 
-    let token = req.cookies?.accessToken;
-
-    if (!token && req.headers.authorization?.startsWith("Bearer ")) {
+    // Primary: Authorization header (Bearer token)
+    if (req.headers.authorization?.startsWith("Bearer ")) {
       token = req.headers.authorization.split(" ")[1];
-      console.log("[AUTH DEBUG] Using token from Authorization header");
+    }
+
+    // Fallback: cookies (for local development or legacy clients)
+    if (!token) {
+      token = req.cookies?.accessToken;
     }
 
     if (!token) {
-      console.log("[AUTH DEBUG] ❌ No token found in cookies or headers");
       return res.status(401).json({
         message: "Unauthorized - No token provided",
         isAuthenticated: false,
       });
     }
 
-    console.log("[AUTH DEBUG] ✅ Token found, verifying...");
     const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-    console.log("[AUTH DEBUG] ✅ Token verified for user:", decoded.email);
 
     req.user = {
       userId: decoded.userId,
@@ -41,7 +36,6 @@ export const verifyJWT = (req, res, next) => {
     next();
   } catch (error) {
     if (error.name === "TokenExpiredError") {
-      console.log("[AUTH DEBUG] ❌ Token expired");
       return res.status(401).json({
         message: "Unauthorized - Token expired",
         isAuthenticated: false,
@@ -49,7 +43,6 @@ export const verifyJWT = (req, res, next) => {
     }
 
     if (error.name === "JsonWebTokenError") {
-      console.log("[AUTH DEBUG] ❌ Invalid token:", error.message);
       return res.status(401).json({
         message: "Unauthorized - Invalid token",
         isAuthenticated: false,
@@ -61,9 +54,21 @@ export const verifyJWT = (req, res, next) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// optionalAuth — Attaches user if token present, continues otherwise
+// ---------------------------------------------------------------------------
+
 export const optionalAuth = (req, res, next) => {
   try {
-    const token = req.cookies?.accessToken;
+    let token = null;
+
+    if (req.headers.authorization?.startsWith("Bearer ")) {
+      token = req.headers.authorization.split(" ")[1];
+    }
+
+    if (!token) {
+      token = req.cookies?.accessToken;
+    }
 
     if (token) {
       const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
@@ -75,7 +80,8 @@ export const optionalAuth = (req, res, next) => {
     }
 
     next();
-  } catch (error) {
+  } catch {
+    // Token invalid/expired — continue without auth
     next();
   }
 };

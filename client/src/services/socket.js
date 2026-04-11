@@ -1,4 +1,5 @@
 import { io } from "socket.io-client";
+import { TokenStorage } from "./api";
 
 let socket = null;
 
@@ -14,9 +15,11 @@ export const connectSocket = () => {
     socket = null;
   }
 
-  // Create new socket instance
+  // Create new socket instance with token in auth object
   socket = io(import.meta.env.VITE_SOCKET_URL, {
-    withCredentials: true,
+    auth: {
+      token: TokenStorage.getAccessToken(),
+    },
     autoConnect: true,
     reconnection: true,
     reconnectionAttempts: 5,
@@ -41,6 +44,9 @@ export const connectSocket = () => {
   // Reconnection attempt
   socket.on("reconnect_attempt", (attemptNumber) => {
     console.log("[Socket] Reconnection attempt:", attemptNumber);
+
+    // Update token on reconnection in case it was refreshed
+    socket.auth = { token: TokenStorage.getAccessToken() };
   });
 
   // Reconnection successful

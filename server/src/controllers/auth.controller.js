@@ -1,71 +1,70 @@
 import { User } from "../models/User.model.js";
 import jwt from "jsonwebtoken";
 
-const isProduction = process.env.NODE_ENV === "production";
+// ---------------------------------------------------------------------------
+// Token Generators
+// ---------------------------------------------------------------------------
 
-const accessCookieOptions = {
-  httpOnly: true,
-  secure: isProduction, 
-  sameSite: isProduction ? "none" : "lax", 
-  maxAge: 60 * 60 * 1000, // 1 hour
+const generateAccessToken = (user) => {
+  return jwt.sign(
+    {
+      userId: user._id,
+      email: user.email,
+      name: user.name,
+    },
+    process.env.ACCESS_TOKEN_SECRET,
+    { expiresIn: process.env.ACCESS_TOKEN_EXPIRY || "1h" },
+  );
 };
 
-const refreshCookieOptions = {
-  httpOnly: true,
-  secure: isProduction,
-  sameSite: isProduction ? "none" : "lax",
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+const generateRefreshToken = (user) => {
+  return jwt.sign(
+    { userId: user._id },
+    process.env.REFRESH_TOKEN_SECRET,
+    { expiresIn: process.env.REFRESH_TOKEN_EXPIRY || "7d" },
+  );
 };
+
+// ---------------------------------------------------------------------------
+// Google OAuth Callback
+// ---------------------------------------------------------------------------
 
 export const googleCallback = async (req, res) => {
   try {
     const user = req.user;
 
     if (!user) {
-      return res.status(401).json({ message: "Authentication failed" });
+      const frontendURL = process.env.FRONTEND_URL || "http://localhost:5173";
+      return res.redirect(`${frontendURL}/login?error=auth_failed`);
     }
 
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    // Store refresh token in database
+    // Persist refresh token in DB for validation & rotation
     await User.findByIdAndUpdate(user._id, { refreshToken });
 
-    res.cookie("accessToken", accessToken, accessCookieOptions);
-    res.cookie("refreshToken", refreshToken, refreshCookieOptions);
+    // Redirect to frontend with tokens as URL params.
+    // The frontend will extract, store in localStorage, and clean the URL.
+    const frontendURL = process.env.FRONTEND_URL || "http://localhost:5173/home";
+    const redirectURL = new URL(frontendURL);
+    redirectURL.searchParams.set("accessToken", accessToken);
+    redirectURL.searchParams.set("refreshToken", refreshToken);
 
-    res.redirect(process.env.FRONTEND_URL || "http://localhost:5173/home");
+    res.redirect(redirectURL.toString());
   } catch (error) {
     console.error("Google callback error:", error);
-    res.status(500).json({ message: "Internal server error" });
+    const frontendURL = process.env.FRONTEND_URL || "http://localhost:5173";
+    res.redirect(`${frontendURL}/login?error=server_error`);
   }
 };
 
-const generateAccessToken = (user) => {
-  const payload = {
-    userId: user._id,
-    email: user.email,
-    name: user.name,
-  };
-
-  return jwt.sign(payload, process.env.ACCESS_TOKEN_SECRET, {
-    expiresIn: process.env.ACCESS_TOKEN_EXPIRY || "1h",
-  });
-};
-
-const generateRefreshToken = (user) => {
-  const payload = {
-    userId: user._id,
-  };
-
-  return jwt.sign(payload, process.env.REFRESH_TOKEN_SECRET, {
-    expiresIn: process.env.REFRESH_TOKEN_EXPIRY || "7d",
-  });
-};
+// ---------------------------------------------------------------------------
+// Get Current User  (requires Authorization header)
+// ---------------------------------------------------------------------------
 
 export const getCurrentUser = async (req, res) => {
   try {
-    // req.user is set by auth middleware
     const user = await User.findById(req.user.userId).select(
       "-password -refreshToken -blacklistedTokens",
     );
@@ -81,53 +80,52 @@ export const getCurrentUser = async (req, res) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Logout  (accepts refresh token from body or cookies)
+// ---------------------------------------------------------------------------
+
 export const logout = async (req, res) => {
   try {
-    const refreshToken = req.cookies.refreshToken;
+    // Accept refresh token from request body (primary) or cookies (fallback)
+    const refreshToken = req.body.refreshToken || req.cookies?.refreshToken;
 
     if (refreshToken) {
-      // Decode token to get user ID
-      const decoded = jwt.verify(
-        refreshToken,
-        process.env.REFRESH_TOKEN_SECRET,
-      );
+      try {
+        const decoded = jwt.verify(
+          refreshToken,
+          process.env.REFRESH_TOKEN_SECRET,
+        );
 
-      // Blacklist the refresh token and clear stored token
-      await User.findByIdAndUpdate(decoded.userId, {
-        refreshToken: null,
-        $push: {
-          blacklistedTokens: {
-            token: refreshToken,
-            blacklistedAt: new Date(),
+        // Blacklist the refresh token and clear stored token
+        await User.findByIdAndUpdate(decoded.userId, {
+          refreshToken: null,
+          $push: {
+            blacklistedTokens: {
+              token: refreshToken,
+              blacklistedAt: new Date(),
+            },
           },
-        },
-      });
+        });
+      } catch {
+        // Token may be expired/invalid — still proceed with logout
+      }
     }
-
-    res.clearCookie("accessToken", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-    });
-
-    res.clearCookie("refreshToken", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-    });
 
     res.json({ message: "Logged out successfully" });
   } catch (error) {
-    // Even if token verification fails, clear cookies
-    res.clearCookie("accessToken");
-    res.clearCookie("refreshToken");
+    console.error("Logout error:", error);
     res.json({ message: "Logged out successfully" });
   }
 };
 
+// ---------------------------------------------------------------------------
+// Refresh Access Token  (accepts refresh token from body or cookies)
+// ---------------------------------------------------------------------------
+
 export const refreshAccessToken = async (req, res) => {
   try {
-    const refreshToken = req.cookies.refreshToken;
+    // Accept refresh token from request body (primary) or cookies (fallback)
+    const refreshToken = req.body.refreshToken || req.cookies?.refreshToken;
 
     if (!refreshToken) {
       return res.status(401).json({ message: "Refresh token not provided" });
@@ -137,7 +135,7 @@ export const refreshAccessToken = async (req, res) => {
     let decoded;
     try {
       decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
-    } catch (err) {
+    } catch {
       return res
         .status(401)
         .json({ message: "Invalid or expired refresh token" });
@@ -150,7 +148,7 @@ export const refreshAccessToken = async (req, res) => {
       return res.status(401).json({ message: "User not found" });
     }
 
-    // Check if token matches stored token
+    // Check if token matches stored token (prevents reuse of rotated tokens)
     if (user.refreshToken !== refreshToken) {
       return res
         .status(401)
@@ -168,19 +166,16 @@ export const refreshAccessToken = async (req, res) => {
         .json({ message: "Refresh token has been revoked" });
     }
 
-    // Generate new access token
+    // Generate new tokens (rotation for security)
     const newAccessToken = generateAccessToken(user);
-
-    // Optionally rotate refresh token for enhanced security
     const newRefreshToken = generateRefreshToken(user);
     await User.findByIdAndUpdate(user._id, { refreshToken: newRefreshToken });
 
-    res.cookie("accessToken", newAccessToken, accessCookieOptions);
-    res.cookie("refreshToken", newRefreshToken, refreshCookieOptions);
-
+    // Return tokens in response body (not cookies)
     res.json({
       message: "Token refreshed successfully",
-      accessToken: newAccessToken, // For clients that don't use cookies
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
     });
   } catch (error) {
     console.error("Refresh token error:", error);

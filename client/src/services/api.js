@@ -1,14 +1,59 @@
 import axios from "axios";
 
+// ---------------------------------------------------------------------------
+// Axios Instance
+// ---------------------------------------------------------------------------
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
-  withCredentials: true,
   headers: {
     "Content-Type": "application/json",
   },
 });
 
-// Track if we're currently refreshing to prevent multiple refresh calls
+// ---------------------------------------------------------------------------
+// Token Storage Helpers
+// ---------------------------------------------------------------------------
+
+export const TokenStorage = {
+  getAccessToken: () => localStorage.getItem("accessToken"),
+  getRefreshToken: () => localStorage.getItem("refreshToken"),
+
+  setTokens: (accessToken, refreshToken) => {
+    if (accessToken) localStorage.setItem("accessToken", accessToken);
+    if (refreshToken) localStorage.setItem("refreshToken", refreshToken);
+  },
+
+  clearTokens: () => {
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Request Interceptor — Attach Authorization header
+// ---------------------------------------------------------------------------
+
+api.interceptors.request.use(
+  (config) => {
+    const token = TokenStorage.getAccessToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    if (import.meta.env.DEV) {
+      console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`);
+    }
+
+    return config;
+  },
+  (error) => Promise.reject(error),
+);
+
+// ---------------------------------------------------------------------------
+// Response Interceptor — Auto-refresh on 401
+// ---------------------------------------------------------------------------
+
 let isRefreshing = false;
 let failedQueue = [];
 
@@ -26,15 +71,9 @@ const processQueue = (error) => {
 };
 
 const redirectToLogin = () => {
-  // Prevent redirect loops
-  if (window.location.pathname === "/login") {
-    return;
-  }
+  if (window.location.pathname === "/login") return;
 
-  // Clear any local storage auth data if used
-  localStorage.removeItem("user");
-  sessionStorage.removeItem("user");
-
+  TokenStorage.clearTokens();
   window.location.href = "/login";
 };
 
@@ -52,6 +91,7 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // Don't attempt refresh for auth-check endpoints
     if (shouldSkipRefresh(originalRequest.url)) {
       return Promise.reject(error);
     }
@@ -75,36 +115,34 @@ api.interceptors.response.use(
     isRefreshing = true;
 
     try {
-      // Attempt to refresh the token
-      await api.post("/v1/auth/refresh");
+      const refreshToken = TokenStorage.getRefreshToken();
 
-      // Token refreshed successfully, process queued requests
+      if (!refreshToken) {
+        throw new Error("No refresh token available");
+      }
+
+      // Send refresh token in request body
+      const response = await api.post("/v1/auth/refresh", { refreshToken });
+
+      // Store new tokens from response
+      TokenStorage.setTokens(
+        response.data.accessToken,
+        response.data.refreshToken,
+      );
+
+      // Process queued requests
       processQueue(null);
 
-      // Retry the original request
+      // Retry the original request (interceptor will attach new token)
       return api(originalRequest);
     } catch (refreshError) {
-      // Refresh failed, reject all queued requests
       processQueue(refreshError);
-
-      // Redirect to login
       redirectToLogin();
-
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;
     }
   },
 );
-
-if (import.meta.env.DEV) {
-  api.interceptors.request.use(
-    (config) => {
-      console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`);
-      return config;
-    },
-    (error) => Promise.reject(error),
-  );
-}
 
 export default api;
