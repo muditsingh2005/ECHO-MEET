@@ -1,9 +1,5 @@
 import jwt from "jsonwebtoken";
 
-// ---------------------------------------------------------------------------
-// verifyJWT — Extracts token from Authorization header or cookies (fallback)
-// ---------------------------------------------------------------------------
-
 export const verifyJWT = (req, res, next) => {
   try {
     let token = null;
@@ -54,9 +50,6 @@ export const verifyJWT = (req, res, next) => {
   }
 };
 
-// ---------------------------------------------------------------------------
-// optionalAuth — Attaches user if token present, continues otherwise
-// ---------------------------------------------------------------------------
 
 export const optionalAuth = (req, res, next) => {
   try {

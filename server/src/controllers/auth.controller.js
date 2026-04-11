@@ -1,10 +1,6 @@
 import { User } from "../models/User.model.js";
 import jwt from "jsonwebtoken";
 
-// ---------------------------------------------------------------------------
-// Token Generators
-// ---------------------------------------------------------------------------
-
 const generateAccessToken = (user) => {
   return jwt.sign(
     {
@@ -24,10 +20,6 @@ const generateRefreshToken = (user) => {
     { expiresIn: process.env.REFRESH_TOKEN_EXPIRY || "7d" },
   );
 };
-
-// ---------------------------------------------------------------------------
-// Google OAuth Callback
-// ---------------------------------------------------------------------------
 
 export const googleCallback = async (req, res) => {
   try {
@@ -59,10 +51,6 @@ export const googleCallback = async (req, res) => {
   }
 };
 
-// ---------------------------------------------------------------------------
-// Get Current User  (requires Authorization header)
-// ---------------------------------------------------------------------------
-
 export const getCurrentUser = async (req, res) => {
   try {
     const user = await User.findById(req.user.userId).select(
@@ -79,10 +67,6 @@ export const getCurrentUser = async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 };
-
-// ---------------------------------------------------------------------------
-// Logout  (accepts refresh token from body or cookies)
-// ---------------------------------------------------------------------------
 
 export const logout = async (req, res) => {
   try {
@@ -118,9 +102,6 @@ export const logout = async (req, res) => {
   }
 };
 
-// ---------------------------------------------------------------------------
-// Refresh Access Token  (accepts refresh token from body or cookies)
-// ---------------------------------------------------------------------------
 
 export const refreshAccessToken = async (req, res) => {
   try {

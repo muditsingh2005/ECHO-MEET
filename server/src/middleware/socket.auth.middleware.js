@@ -1,8 +1,5 @@
 import jwt from "jsonwebtoken";
 
-// ---------------------------------------------------------------------------
-// Socket Auth — Extracts token from handshake auth object or cookies
-// ---------------------------------------------------------------------------
 
 export const socketAuthMiddleware = async (socket, next) => {
   try {

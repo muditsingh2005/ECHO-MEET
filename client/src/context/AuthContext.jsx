@@ -10,10 +10,6 @@ import { disconnectSocket } from "../services/socket";
 
 const AuthContext = createContext(null);
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /** Extract OAuth tokens from URL params and clean the address bar. */
 const extractTokensFromURL = () => {
   const params = new URLSearchParams(window.location.search);
@@ -32,10 +28,6 @@ const extractTokensFromURL = () => {
 
   return false;
 };
-
-// ---------------------------------------------------------------------------
-// Provider
-// ---------------------------------------------------------------------------
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);

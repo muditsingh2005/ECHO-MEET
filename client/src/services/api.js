@@ -1,9 +1,5 @@
 import axios from "axios";
 
-// ---------------------------------------------------------------------------
-// Axios Instance
-// ---------------------------------------------------------------------------
-
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
   headers: {
@@ -11,9 +7,6 @@ const api = axios.create({
   },
 });
 
-// ---------------------------------------------------------------------------
-// Token Storage Helpers
-// ---------------------------------------------------------------------------
 
 export const TokenStorage = {
   getAccessToken: () => localStorage.getItem("accessToken"),
@@ -30,9 +23,6 @@ export const TokenStorage = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// Request Interceptor — Attach Authorization header
-// ---------------------------------------------------------------------------
 
 api.interceptors.request.use(
   (config) => {
@@ -49,10 +39,6 @@ api.interceptors.request.use(
   },
   (error) => Promise.reject(error),
 );
-
-// ---------------------------------------------------------------------------
-// Response Interceptor — Auto-refresh on 401
-// ---------------------------------------------------------------------------
 
 let isRefreshing = false;
 let failedQueue = [];
