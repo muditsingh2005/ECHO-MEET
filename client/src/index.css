@@ -1,3 +1,158 @@
+/* ============================================
+   ECHO-MEET — Design Token System
+   ============================================ */
+
+/* ---- Light Theme (default tokens) ---- */
+:root {
+  /* Backgrounds */
+  --bg-primary: #f8fafc;
+  --bg-secondary: #f1f5f9;
+  --bg-gradient: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+
+  /* Surfaces */
+  --surface: #ffffff;
+  --surface-hover: #f8fafc;
+  --surface-elevated: #ffffff;
+
+  /* Borders */
+  --border: #e2e8f0;
+  --border-hover: #cbd5e1;
+
+  /* Text */
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+
+  /* Accent (Indigo) */
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-light: #e0e7ff;
+  --accent-muted: rgba(79, 70, 229, 0.1);
+  --accent-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+
+  /* Danger */
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
+  --danger-light: #fef2f2;
+  --danger-border: #fecaca;
+  --danger-muted: rgba(239, 68, 68, 0.15);
+
+  /* Success */
+  --success: #16a34a;
+  --success-light: #dcfce7;
+
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 10px 40px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 25px 50px rgba(0, 0, 0, 0.12);
+  --shadow-accent: 0 8px 20px rgba(79, 70, 229, 0.3);
+
+  /* Glass */
+  --glass-bg: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(0, 0, 0, 0.05);
+
+  /* Overlay */
+  --overlay: rgba(0, 0, 0, 0.5);
+
+  /* Decorative circles opacity */
+  --decor-opacity-1: 0.07;
+  --decor-opacity-2: 0.04;
+
+  /* Chat */
+  --chat-own-bg: #e0e7ff;
+  --chat-other-bg: #f1f5f9;
+  --chat-sender-color: #4f46e5;
+
+  /* Inputs */
+  --input-bg: #f8fafc;
+  --input-border: #e2e8f0;
+
+  /* Toggle specific */
+  --toggle-bg: #cbd5e1;
+  --toggle-bg-active: var(--accent-gradient);
+}
+
+/* ---- Dark Theme ---- */
+[data-theme="dark"] {
+  /* Backgrounds */
+  --bg-primary: #0b1120;
+  --bg-secondary: #131b2e;
+  --bg-gradient: linear-gradient(135deg, #0b1120 0%, #111827 100%);
+
+  /* Surfaces */
+  --surface: #1a2332;
+  --surface-hover: #1f2b3d;
+  --surface-elevated: #1f2937;
+
+  /* Borders */
+  --border: #2a3444;
+  --border-hover: #3b4758;
+
+  /* Text */
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+
+  /* Accent (brighter for dark bg) */
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --accent-light: rgba(99, 102, 241, 0.15);
+  --accent-muted: rgba(99, 102, 241, 0.1);
+  --accent-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+
+  /* Danger */
+  --danger: #f87171;
+  --danger-hover: #ef4444;
+  --danger-light: rgba(248, 113, 113, 0.12);
+  --danger-border: rgba(248, 113, 113, 0.25);
+  --danger-muted: rgba(248, 113, 113, 0.1);
+
+  /* Success */
+  --success: #4ade80;
+  --success-light: rgba(74, 222, 128, 0.15);
+
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 10px 40px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 25px 50px rgba(0, 0, 0, 0.45);
+  --shadow-accent: 0 8px 20px rgba(99, 102, 241, 0.25);
+
+  /* Glass */
+  --glass-bg: rgba(17, 24, 39, 0.88);
+  --glass-border: rgba(255, 255, 255, 0.06);
+
+  /* Overlay */
+  --overlay: rgba(0, 0, 0, 0.7);
+
+  /* Decorative circles */
+  --decor-opacity-1: 0.12;
+  --decor-opacity-2: 0.06;
+
+  /* Chat */
+  --chat-own-bg: rgba(99, 102, 241, 0.2);
+  --chat-other-bg: #1f2937;
+  --chat-sender-color: #818cf8;
+
+  /* Inputs */
+  --input-bg: #131b2e;
+  --input-border: #2a3444;
+
+  /* Toggle */
+  --toggle-bg: #3b4758;
+}
+
+/* ---- Theme Transition ---- */
+.theme-transitioning,
+.theme-transitioning *,
+.theme-transitioning *::before,
+.theme-transitioning *::after {
+  transition: background-color 0.35s ease, color 0.25s ease,
+    border-color 0.35s ease, box-shadow 0.35s ease, background 0.35s ease !important;
+}
+
+/* ============================================
+   Global Reset & Base
+   ============================================ */
 * {
   margin: 0;
   padding: 0;
@@ -20,6 +175,8 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 #root {

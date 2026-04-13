@@ -1,9 +1,10 @@
-/* Dashboard Page - Light Theme */
+/* Dashboard Page — Themed */
 .dashboard-page {
   min-height: 100vh;
-  background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
+  background: var(--bg-gradient);
   position: relative;
   overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* Decorative Circles */
@@ -18,8 +19,8 @@
   height: 400px;
   background: linear-gradient(
     135deg,
-    rgba(79, 70, 229, 0.08) 0%,
-    rgba(124, 58, 237, 0.05) 100%
+    rgba(99, 102, 241, var(--decor-opacity-1)) 0%,
+    rgba(139, 92, 246, var(--decor-opacity-2)) 100%
   );
   top: -150px;
   right: -100px;
@@ -30,8 +31,8 @@
   height: 300px;
   background: linear-gradient(
     135deg,
-    rgba(124, 58, 237, 0.06) 0%,
-    rgba(79, 70, 229, 0.03) 100%
+    rgba(139, 92, 246, var(--decor-opacity-2)) 0%,
+    rgba(99, 102, 241, var(--decor-opacity-1)) 100%
   );
   bottom: -100px;
   left: -80px;
@@ -43,9 +44,10 @@
   justify-content: space-between;
   align-items: center;
   padding: 20px 32px;
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--glass-border);
   position: sticky;
   top: 0;
   z-index: 100;
@@ -56,7 +58,7 @@
   align-items: center;
   gap: 8px;
   background: transparent;
-  color: #64748b;
+  color: var(--text-secondary);
   border: none;
   padding: 10px 16px;
   border-radius: 10px;
@@ -72,14 +74,14 @@
 }
 
 .btn-back:hover {
-  background: #f1f5f9;
-  color: #334155;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 .dashboard-title {
   font-size: 1.25rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -87,9 +89,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f1f5f9;
-  color: #64748b;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
   padding: 10px;
   border-radius: 10px;
   cursor: pointer;
@@ -102,8 +104,9 @@
 }
 
 .btn-refresh:hover:not(:disabled) {
-  background: #e2e8f0;
-  color: #334155;
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
 }
 
 .btn-refresh:disabled {
@@ -124,21 +127,21 @@
 
 /* Profile Card */
 .profile-card {
-  background: white;
+  background: var(--surface);
   border-radius: 16px;
   padding: 24px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
-  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 24px;
-  margin-bottom: 32px;
+  margin-bottom: 24px;
 }
 
 .profile-avatar {
   width: 80px;
   height: 80px;
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  background: var(--accent-gradient);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -165,30 +168,33 @@
 .profile-item svg {
   width: 18px;
   height: 18px;
-  color: #94a3b8;
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
 .profile-label {
   font-size: 0.8rem;
-  color: #94a3b8;
+  color: var(--text-muted);
   font-weight: 500;
   width: 50px;
 }
 
 .profile-value {
   font-size: 0.95rem;
-  color: #334155;
+  color: var(--text-primary);
   font-weight: 500;
 }
 
-/* Meetings Section */
-.meetings-section {
-  background: white;
+/* ==========================================
+   Settings Section
+   ========================================== */
+.settings-section {
+  background: var(--surface);
   border-radius: 16px;
   padding: 24px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
-  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  margin-bottom: 24px;
 }
 
 .section-title {
@@ -197,16 +203,125 @@
   gap: 10px;
   font-size: 1.1rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
   margin: 0 0 20px 0;
   padding-bottom: 16px;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--border);
 }
 
 .section-title svg {
   width: 22px;
   height: 22px;
-  color: #4f46e5;
+  color: var(--accent);
+}
+
+.settings-group {
+  padding: 0;
+}
+
+.settings-group-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin: 0 0 16px 0;
+}
+
+.setting-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 20px;
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.setting-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.setting-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.setting-description {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Theme Toggle */
+.theme-toggle-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.theme-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: color 0.3s ease, transform 0.3s ease;
+}
+
+.theme-label svg {
+  width: 18px;
+  height: 18px;
+}
+
+.theme-label.active {
+  color: var(--accent);
+  transform: scale(1.15);
+}
+
+.theme-toggle {
+  position: relative;
+  width: 52px;
+  height: 28px;
+  background: var(--toggle-bg);
+  border: none;
+  border-radius: 14px;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.35s ease;
+}
+
+.theme-toggle.dark {
+  background: var(--accent-gradient);
+}
+
+.theme-toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.theme-toggle.dark .theme-toggle-knob {
+  transform: translateX(24px);
+}
+
+/* ==========================================
+   Meetings Section
+   ========================================== */
+.meetings-section {
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
 }
 
 /* Loading State */
@@ -216,14 +331,14 @@
   align-items: center;
   justify-content: center;
   padding: 48px 24px;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid #e2e8f0;
-  border-top-color: #4f46e5;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin-bottom: 16px;
@@ -247,7 +362,7 @@
   align-items: center;
   justify-content: center;
   padding: 48px 24px;
-  color: #ef4444;
+  color: var(--danger);
   text-align: center;
 }
 
@@ -257,9 +372,9 @@
 }
 
 .btn-retry {
-  background: #fef2f2;
-  color: #dc2626;
-  border: 1px solid #fecaca;
+  background: var(--danger-light);
+  color: var(--danger);
+  border: 1px solid var(--danger-border);
   padding: 10px 20px;
   border-radius: 10px;
   font-size: 0.9rem;
@@ -269,7 +384,7 @@
 }
 
 .btn-retry:hover {
-  background: #fee2e2;
+  opacity: 0.85;
 }
 
 /* Empty State */
@@ -279,7 +394,7 @@
   align-items: center;
   justify-content: center;
   padding: 48px 24px;
-  color: #94a3b8;
+  color: var(--text-muted);
   text-align: center;
 }
 
@@ -294,7 +409,7 @@
   margin: 0;
   font-size: 1rem;
   font-weight: 500;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .empty-state span {
@@ -310,8 +425,8 @@
 }
 
 .meeting-card {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px 20px;
   cursor: pointer;
@@ -319,8 +434,8 @@
 }
 
 .meeting-card:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
+  background: var(--surface-hover);
+  border-color: var(--border-hover);
   transform: translateX(4px);
 }
 
@@ -335,7 +450,7 @@
 .meeting-title {
   font-size: 1rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -350,18 +465,18 @@
 }
 
 .meeting-status.active {
-  background: #dcfce7;
-  color: #16a34a;
+  background: var(--success-light);
+  color: var(--success);
 }
 
 .meeting-status.ended {
-  background: #f1f5f9;
-  color: #64748b;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
 }
 
 .meeting-description {
   font-size: 0.85rem;
-  color: #64748b;
+  color: var(--text-secondary);
   margin: 0 0 12px 0;
   line-height: 1.5;
   display: -webkit-box;
@@ -382,7 +497,7 @@
   align-items: center;
   gap: 6px;
   font-size: 0.8rem;
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 .meeting-date svg {
@@ -393,8 +508,8 @@
 .meeting-id-badge {
   font-size: 0.75rem;
   font-family: monospace;
-  color: #94a3b8;
-  background: #e2e8f0;
+  color: var(--text-muted);
+  background: var(--border);
   padding: 4px 8px;
   border-radius: 6px;
 }
@@ -426,6 +541,16 @@
 
   .profile-label {
     width: auto;
+  }
+
+  .setting-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .theme-toggle-wrapper {
+    align-self: center;
   }
 
   .meeting-card-header {
