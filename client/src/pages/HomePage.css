@@ -1,6 +1,7 @@
 /* Home Page — Themed */
 .home-page {
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   background: var(--bg-gradient);
@@ -51,6 +52,7 @@
   border-bottom: 1px solid var(--glass-border);
   position: relative;
   z-index: 10;
+  flex-shrink: 0;
 }
 
 .logo {
@@ -72,6 +74,7 @@
   background: var(--accent-gradient);
   border-radius: 10px;
   color: white;
+  flex-shrink: 0;
 }
 
 .logo-icon svg {
@@ -106,12 +109,14 @@
   color: white;
   font-weight: 600;
   font-size: 0.85rem;
+  flex-shrink: 0;
 }
 
 .user-name {
   color: var(--text-secondary);
   font-size: 0.9rem;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 /* Main Content */
@@ -123,6 +128,8 @@
   padding: 40px;
   position: relative;
   z-index: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .home-content {
@@ -217,6 +224,7 @@
   width: 380px;
   box-shadow: var(--shadow-md);
   border: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .card-header {
@@ -405,11 +413,17 @@
   color: var(--text-muted);
 }
 
-/* Responsive */
+/* ── Tablet ── */
 @media (max-width: 900px) {
+  .home-main {
+    padding: 24px;
+    align-items: flex-start;
+  }
+
   .home-content {
     flex-direction: column;
-    gap: 40px;
+    gap: 28px;
+    align-items: center;
   }
 
   .hero-section {
@@ -418,7 +432,23 @@
   }
 
   .hero-icon {
-    margin: 0 auto 24px;
+    margin: 0 auto 20px;
+    width: 56px;
+    height: 56px;
+  }
+
+  .hero-icon svg {
+    width: 28px;
+    height: 28px;
+  }
+
+  .hero-section h1 {
+    font-size: 2rem;
+  }
+
+  .hero-section p {
+    font-size: 1rem;
+    margin-bottom: 16px;
   }
 
   .feature-badges {
@@ -427,13 +457,31 @@
 
   .home-card {
     width: 100%;
-    max-width: 400px;
+    max-width: 420px;
+    padding: 32px 28px;
   }
 }
 
+/* ── Mobile ── */
 @media (max-width: 600px) {
   .home-header {
-    padding: 12px 20px;
+    padding: 12px 16px;
+  }
+
+  .logo {
+    font-size: 1.15rem;
+    gap: 8px;
+  }
+
+  .logo-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+  }
+
+  .logo-icon svg {
+    width: 16px;
+    height: 16px;
   }
 
   .user-info {
@@ -448,16 +496,23 @@
     padding: 10px;
   }
 
+  .btn-ghost svg {
+    width: 20px;
+    height: 20px;
+  }
+
   .home-main {
-    padding: 24px 20px;
+    padding: 20px 16px;
   }
 
   .hero-section h1 {
-    font-size: 1.75rem;
+    font-size: 1.6rem;
+    margin-bottom: 10px;
   }
 
   .hero-section p {
-    font-size: 1rem;
+    font-size: 0.9rem;
+    margin-bottom: 12px;
   }
 
   .feature-badges {
@@ -465,11 +520,65 @@
   }
 
   .home-card {
-    padding: 28px 24px;
+    padding: 24px 20px;
+    border-radius: 20px;
+  }
+
+  .card-header {
+    margin-bottom: 20px;
+  }
+
+  .card-header h2 {
+    font-size: 1.25rem;
+  }
+
+  .card-header p {
+    font-size: 0.85rem;
+  }
+
+  .btn-large {
+    padding: 14px 20px;
+    font-size: 0.9rem;
+  }
+
+  .divider {
+    margin: 18px 0;
+  }
+
+  .meeting-input {
+    padding: 14px 14px 14px 44px;
+    font-size: 0.9rem;
   }
 }
 
-/* Modal Styles */
+/* ── Small Phone ── */
+@media (max-width: 380px) {
+  .home-main {
+    padding: 16px 12px;
+  }
+
+  .hero-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+  }
+
+  .hero-icon svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .hero-section h1 {
+    font-size: 1.35rem;
+  }
+
+  .home-card {
+    padding: 20px 16px;
+    border-radius: 16px;
+  }
+}
+
+/* ── Modal Styles ── */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -500,6 +609,8 @@
   border-radius: 20px;
   width: 100%;
   max-width: 440px;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--border);
   animation: slideUp 0.3s ease;
@@ -542,6 +653,7 @@
   justify-content: center;
   color: var(--text-secondary);
   transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
 .modal-close:hover {
@@ -639,9 +751,16 @@
   margin-bottom: 20px;
 }
 
+/* ── Modal Mobile ── */
 @media (max-width: 480px) {
+  .modal-overlay {
+    padding: 12px;
+    align-items: flex-end;
+  }
+
   .modal-content {
-    border-radius: 16px;
+    border-radius: 20px 20px 16px 16px;
+    max-height: 85dvh;
   }
 
   .modal-header {
@@ -649,19 +768,29 @@
   }
 
   .modal-header h3 {
-    font-size: 1.2rem;
+    font-size: 1.15rem;
   }
 
   .modal-form {
     padding: 20px;
   }
 
+  .form-group {
+    margin-bottom: 16px;
+  }
+
   .form-group input,
   .form-group textarea {
     padding: 12px 14px;
+    font-size: 0.9rem;
   }
 
   .modal-actions {
     flex-direction: column-reverse;
+    margin-top: 20px;
+  }
+
+  .modal-actions .btn {
+    padding: 13px 16px;
   }
 }
