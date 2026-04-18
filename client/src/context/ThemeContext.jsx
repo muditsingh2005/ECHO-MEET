@@ -1,4 +1,10 @@
-import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+} from "react";
 
 const ThemeContext = createContext(null);
 
@@ -6,9 +12,9 @@ const STORAGE_KEY = "echo-meet-theme";
 
 export const ThemeProvider = ({ children }) => {
   const [theme, setTheme] = useState(() => {
-    // Check localStorage first, default to "dark"
+    // Check localStorage first, default to "light"
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored === "light" || stored === "dark" ? stored : "dark";
+    return stored === "light" || stored === "dark" ? stored : "light";
   });
 
   // Apply theme to <html> element whenever it changes
@@ -36,7 +42,9 @@ export const ThemeProvider = ({ children }) => {
 
   const value = { theme, toggleTheme, isDark };
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  return (
+    <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+  );
 };
 
 export const useTheme = () => {

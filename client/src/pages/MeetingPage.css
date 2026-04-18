@@ -667,7 +667,7 @@
 
   .video-element {
     border-radius: 14px;
-    object-fit: contain;
+    object-fit: cover;
   }
 }
 
@@ -735,7 +735,7 @@
 
   .video-element {
     border-radius: 12px;
-    object-fit: contain;
+    object-fit: cover;
     background: #0f172a;
   }
 
