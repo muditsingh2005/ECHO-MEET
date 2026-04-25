@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from "react-router-dom";
-import { LoginPage, HomePage, MeetingPage, DashboardPage } from "./pages";
+import { LoginPage, HomePage, MeetingPage, MeetingResultsPage, DashboardPage } from "./pages";
 import { ProtectedRoute } from "./components";
 import "./App.css";
 
@@ -24,6 +24,14 @@ function App() {
         }
       />
       <Route
+        path="/meeting/:meetingId/results"
+        element={
+          <ProtectedRoute>
+            <MeetingResultsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/dashboard"
         element={
           <ProtectedRoute>
@@ -37,3 +45,4 @@ function App() {
 }
 
 export default App;
+

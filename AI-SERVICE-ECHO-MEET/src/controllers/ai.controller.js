@@ -4,9 +4,13 @@ import {
   appendTranscript,
   endSession,
   getSession,
+  getTranscript,
   hasSession,
   addUser,
 } from "../services/session.service.js";
+import { transcribeAudio } from "../services/transcription.service.js";
+import { assembleTranscript } from "../services/transcript.assembly.service.js";
+import { summarizeMeeting } from "../services/summarization.service.js";
 
 /**
  * POST /api/v1/ai/start-session
@@ -124,10 +128,25 @@ export const streamAudioHandler = (req, res) => {
  * POST /api/v1/ai/end-session
  * Body: { roomId }
  *
- * Finalizes the AI session — returns the full transcript and stats,
- * then deletes the session from memory.
+ * Orchestrates the full end-of-session pipeline:
+ *   Phase 1 — Finalize session and release in-memory resources
+ *   Phase 2 — Assemble raw transcript chunks into a clean transcript
+ *   Phase 3 — Generate AI meeting summary via Llama 3.3
+ *
+ * Failure handling:
+ *   - Session is deleted FIRST so resources are freed even if later steps fail
+ *   - Transcript assembly failures → 500 (no transcript = no value)
+ *   - Summarization failures → graceful degradation (transcript still returned)
+ *   - Each phase reports its own status and timing in the response
  */
-export const endSessionHandler = (req, res) => {
+export const endSessionHandler = async (req, res) => {
+  const startTime = Date.now();
+  const phases = {
+    sessionFinalized: { status: "pending", durationMs: 0 },
+    transcriptAssembled: { status: "pending", durationMs: 0 },
+    summaryGenerated: { status: "pending", durationMs: 0 },
+  };
+
   try {
     const { roomId } = req.body;
 
@@ -138,25 +157,256 @@ export const endSessionHandler = (req, res) => {
       });
     }
 
+    // ── Phase 1: Finalize session ──────────────────────────────
+    // Delete from memory FIRST to guarantee resource cleanup.
+    // We capture the snapshot before deletion so downstream steps
+    // can still process the data.
+    const p1Start = Date.now();
     const snapshot = endSession(roomId);
+    phases.sessionFinalized.durationMs = Date.now() - p1Start;
 
     if (!snapshot) {
+      phases.sessionFinalized.status = "not_found";
+      return res.status(404).json({
+        success: false,
+        message: "No active session found for this room",
+        phases,
+      });
+    }
+
+    phases.sessionFinalized.status = "success";
+    phases.sessionFinalized.details = {
+      users: snapshot.users.length,
+      rawChunks: snapshot.transcript.length,
+      audioChunks: snapshot.totalAudioChunks,
+      audioBytes: snapshot.totalAudioBytes,
+    };
+
+    console.log(
+      `[END-SESSION] Phase 1 complete — room=${roomId} ` +
+        `users=${snapshot.users.length} chunks=${snapshot.transcript.length}`,
+    );
+
+    // ── Phase 2: Assemble transcript ───────────────────────────
+    let assembled = null;
+    const p2Start = Date.now();
+
+    try {
+      assembled = assembleTranscript(snapshot.transcript);
+      phases.transcriptAssembled.durationMs = Date.now() - p2Start;
+      phases.transcriptAssembled.status = "success";
+      phases.transcriptAssembled.details = {
+        segments: assembled.segments.length,
+        speakers: assembled.speakerStats.length,
+        totalWords: assembled.speakerStats.reduce(
+          (sum, s) => sum + s.wordCount,
+          0,
+        ),
+      };
+
+      console.log(
+        `[END-SESSION] Phase 2 complete — room=${roomId} ` +
+          `segments=${assembled.segments.length} ` +
+          `words=${phases.transcriptAssembled.details.totalWords}`,
+      );
+    } catch (assemblyError) {
+      phases.transcriptAssembled.durationMs = Date.now() - p2Start;
+      phases.transcriptAssembled.status = "failed";
+      phases.transcriptAssembled.error = assemblyError.message;
+
+      console.error(
+        `[END-SESSION] Phase 2 FAILED — room=${roomId}: ${assemblyError.message}`,
+      );
+
+      // Transcript assembly is critical — return what we have
+      return res.status(200).json({
+        success: true,
+        message: "Session ended (transcript assembly failed)",
+        summary: _buildSessionSummary(snapshot),
+        transcript: null,
+        meetingSummary: null,
+        phases,
+        totalDurationMs: Date.now() - startTime,
+      });
+    }
+
+    // ── Phase 3: Generate meeting summary ──────────────────────
+    // Only attempt if we have actual transcript content.
+    let meetingSummary = null;
+    const p3Start = Date.now();
+
+    if (!assembled.fullText || assembled.fullText.trim().length === 0) {
+      phases.summaryGenerated.durationMs = 0;
+      phases.summaryGenerated.status = "skipped";
+      phases.summaryGenerated.reason = "Empty transcript";
+
+      console.log(
+        `[END-SESSION] Phase 3 skipped — room=${roomId} (empty transcript)`,
+      );
+    } else {
+      try {
+        const summaryResult = await summarizeMeeting(assembled.fullText, {
+          segments: assembled.segments,
+          speakerStats: assembled.speakerStats,
+        });
+
+        phases.summaryGenerated.durationMs = Date.now() - p3Start;
+
+        if (summaryResult.success) {
+          meetingSummary = summaryResult.summary;
+          phases.summaryGenerated.status = "success";
+
+          console.log(
+            `[END-SESSION] Phase 3 complete — room=${roomId} ` +
+              `keyPoints=${meetingSummary.keyPoints?.length || 0} ` +
+              `actions=${meetingSummary.actionItems?.length || 0} ` +
+              `decisions=${meetingSummary.decisions?.length || 0}`,
+          );
+        } else {
+          phases.summaryGenerated.status = "failed";
+          phases.summaryGenerated.error = summaryResult.error;
+
+          console.warn(
+            `[END-SESSION] Phase 3 FAILED — room=${roomId}: ${summaryResult.error}`,
+          );
+        }
+      } catch (summaryError) {
+        phases.summaryGenerated.durationMs = Date.now() - p3Start;
+        phases.summaryGenerated.status = "failed";
+        phases.summaryGenerated.error = summaryError.message;
+
+        console.error(
+          `[END-SESSION] Phase 3 FAILED (exception) — room=${roomId}: ${summaryError.message}`,
+        );
+      }
+    }
+
+    // ── Response ───────────────────────────────────────────────
+    const totalDurationMs = Date.now() - startTime;
+
+    console.log(
+      `[END-SESSION] Complete — room=${roomId} total=${totalDurationMs}ms ` +
+        `(p1=${phases.sessionFinalized.durationMs}ms ` +
+        `p2=${phases.transcriptAssembled.durationMs}ms ` +
+        `p3=${phases.summaryGenerated.durationMs}ms)`,
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: meetingSummary
+        ? "Session ended successfully"
+        : "Session ended (summary unavailable)",
+      summary: _buildSessionSummary(snapshot),
+      transcript: assembled,
+      meetingSummary,
+      phases,
+      totalDurationMs,
+    });
+  } catch (error) {
+    console.error("[AI-CONTROLLER] endSession fatal error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to end session",
+      error: error.message,
+      phases,
+      totalDurationMs: Date.now() - startTime,
+    });
+  }
+};
+
+/**
+ * Build a clean session summary object from the raw snapshot.
+ */
+function _buildSessionSummary(snapshot) {
+  return {
+    roomId: snapshot.roomId,
+    hostId: snapshot.hostId,
+    createdAt: snapshot.createdAt,
+    endedAt: snapshot.endedAt,
+    users: snapshot.users,
+    totalAudioChunks: snapshot.totalAudioChunks,
+    totalAudioBytes: snapshot.totalAudioBytes,
+    durationMs: snapshot.endedAt - snapshot.createdAt,
+  };
+}
+
+/**
+ * GET /api/v1/ai/transcript/:roomId
+ *
+ * Returns the assembled transcript for an active session (mid-meeting).
+ */
+export const getTranscriptHandler = (req, res) => {
+  try {
+    const { roomId } = req.params;
+
+    if (!roomId) {
+      return res.status(400).json({
+        success: false,
+        message: "roomId is required",
+      });
+    }
+
+    const rawTranscript = getTranscript(roomId);
+
+    if (!rawTranscript) {
       return res.status(404).json({
         success: false,
         message: "No active session found for this room",
       });
     }
 
+    const assembled = assembleTranscript(rawTranscript);
+
     return res.status(200).json({
       success: true,
-      message: "Session ended",
-      summary: snapshot,
+      roomId,
+      entryCount: rawTranscript.length,
+      transcript: assembled,
     });
   } catch (error) {
-    console.error("[AI-CONTROLLER] endSession error:", error);
+    console.error("[AI-CONTROLLER] getTranscript error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to end session",
+      message: "Failed to retrieve transcript",
+    });
+  }
+};
+
+/**
+ * POST /api/v1/ai/summarize
+ * Body: { transcript } — the full text transcript to summarize
+ *
+ * Standalone endpoint for on-demand summarization of any transcript.
+ */
+export const summarizeHandler = async (req, res) => {
+  try {
+    const { transcript } = req.body;
+
+    if (!transcript || !transcript.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "transcript text is required",
+      });
+    }
+
+    const result = await summarizeMeeting(transcript.trim());
+
+    if (!result.success) {
+      return res.status(500).json({
+        success: false,
+        message: result.error || "Summarization failed",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      summary: result.summary,
+    });
+  } catch (error) {
+    console.error("[AI-CONTROLLER] summarize error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to generate summary",
     });
   }
 };
@@ -167,8 +417,9 @@ export const endSessionHandler = (req, res) => {
  *
  * Called by the main signaling server to forward audio chunks.
  * Auto-creates a session if one doesn't exist for the room.
+ * Transcribes audio via Groq Whisper and stores the result.
  */
-export const transcribeChunkHandler = (req, res) => {
+export const transcribeChunkHandler = async (req, res) => {
   try {
     const { roomId, userId, userName, timestamp } = req.body;
 
@@ -190,11 +441,10 @@ export const transcribeChunkHandler = (req, res) => {
     if (!hasSession(roomId)) {
       createSession(roomId, userId, userName || "Unknown");
     } else {
-      // Make sure this user is tracked in the session
       addUser(roomId, userId, userName || "Unknown");
     }
 
-    // Append audio chunk
+    // Append raw audio chunk to session
     const audioResult = appendAudioChunk(roomId, req.file.buffer, userId);
     if (!audioResult.success) {
       return res.status(500).json({
@@ -203,19 +453,42 @@ export const transcribeChunkHandler = (req, res) => {
       });
     }
 
-    // TODO: Plug in actual transcription engine here.
-    // For now, acknowledge receipt. When a real STT engine is wired up,
-    // return { transcription: "..." } so the signaling server can
-    // broadcast it back to the meeting room.
+    // Transcribe via Groq Whisper
+    const result = await transcribeAudio(
+      req.file.buffer,
+      req.file.mimetype || "audio/webm",
+    );
+
+    // If transcription succeeded and is not silent, store it
+    let transcription = null;
+    if (result.success && result.text) {
+      transcription = result.text;
+
+      appendTranscript(
+        roomId,
+        userId,
+        userName || "Unknown",
+        transcription,
+      );
+
+      console.log(
+        `[TRANSCRIBE] room=${roomId} user=${userId}: "${transcription}"`,
+      );
+    }
+
     return res.status(200).json({
       success: true,
-      message: "Audio chunk received for transcription",
+      message: result.silent
+        ? "Audio chunk received (silent)"
+        : "Audio chunk transcribed",
       chunkIndex: audioResult.chunkIndex,
       totalChunks: audioResult.totalChunks,
       receivedBytes: req.file.size,
       userId,
       timestamp: timestamp || new Date().toISOString(),
-      // transcription: null,  // ← will be populated by STT engine
+      transcription,
+      silent: result.silent || false,
+      ...(result.duration && { audioDuration: result.duration }),
     });
   } catch (error) {
     console.error("[AI-CONTROLLER] transcribeChunk error:", error);

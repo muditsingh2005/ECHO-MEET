@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../context";
 import api from "../services/api";
+import { endAISession } from "../services/aiApi";
 import { connectSocket, disconnectSocket, getSocket } from "../services/socket";
 import "./MeetingPage.css";
 
@@ -488,9 +489,13 @@ const MeetingPage = () => {
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((track) => track.stop());
       }
-      // Navigate to home
-      alert("The meeting has ended.");
-      navigate("/home");
+      // Navigate to results page with AI data if available
+      navigate(`/meeting/${meetingId}/results`, {
+        state: {
+          aiResults: data?.aiResults || null,
+        },
+        replace: true,
+      });
     };
 
     const handleRemovedFromMeeting = (data) => {
@@ -612,16 +617,44 @@ const MeetingPage = () => {
   };
 
   // Host control: End meeting for everyone
-  const handleEndMeeting = () => {
+  const handleEndMeeting = async () => {
     if (!isHost) return;
     if (
-      window.confirm("Are you sure you want to end this meeting for everyone?")
-    ) {
-      const socket = getSocket();
-      if (socket) {
-        socket.emit("end-meeting", { meetingId });
+      !window.confirm("Are you sure you want to end this meeting for everyone?")
+    ) return;
+
+    // Try to fetch AI results before ending
+    let aiResults = null;
+    try {
+      const result = await endAISession(meetingId);
+      if (result?.success) {
+        aiResults = {
+          summary: result.summary,
+          transcript: result.transcript,
+          meetingSummary: result.meetingSummary,
+          phases: result.phases,
+        };
       }
+    } catch (err) {
+      console.warn("[MeetingPage] Could not fetch AI results:", err.message);
     }
+
+    // Emit end-meeting with AI results so they're broadcast to all
+    const socket = getSocket();
+    if (socket) {
+      socket.emit("end-meeting", { meetingId, aiResults });
+    }
+
+    // Close connections and navigate to results
+    closeAllPeerConnections();
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
+    }
+    disconnectSocket();
+    navigate(`/meeting/${meetingId}/results`, {
+      state: { aiResults },
+      replace: true,
+    });
   };
 
   const handleLeaveMeeting = () => {
