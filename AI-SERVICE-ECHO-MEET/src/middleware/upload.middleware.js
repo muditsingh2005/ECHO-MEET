@@ -11,7 +11,6 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024, // 10 MB
   },
   fileFilter: (_req, file, cb) => {
-    // Accept common audio MIME types
     const allowedTypes = [
       "audio/webm",
       "audio/ogg",
@@ -19,7 +18,7 @@ const upload = multer({
       "audio/mp4",
       "audio/mpeg",
       "audio/x-wav",
-      "application/octet-stream", // some browsers send raw chunks as this
+      "application/octet-stream",
     ];
 
     if (allowedTypes.includes(file.mimetype)) {
