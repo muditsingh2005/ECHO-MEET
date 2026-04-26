@@ -8,6 +8,11 @@ import {
   getParticipants,
   isUserInRoom,
 } from "../utils/roomManager.js";
+import {
+  forwardAudioChunk,
+  notifySessionStart,
+  notifySessionEnd,
+} from "../services/aiForwarder.js";
 
 export const registerRoomHandlers = (socket, io) => {
   socket.on("join-room", async ({ meetingId }) => {
@@ -116,6 +121,14 @@ export const registerRoomHandlers = (socket, io) => {
       });
 
       console.log(`User ${socket.user.userId} joined room ${meetingId}`);
+
+      // Notify AI service to start/join session (fire-and-forget)
+      notifySessionStart({
+        roomId: meetingId,
+        userId: socket.user.userId,
+        userName: socket.user.name,
+        token: socket.handshake.auth?.token,
+      }).catch(() => {});
     } catch (error) {
       console.error("Error joining room:", error);
       socket.emit("error", { message: "Failed to join room" });
@@ -198,6 +211,50 @@ export const registerRoomHandlers = (socket, io) => {
     console.log(
       `WebRTC ICE candidate from ${socket.user.userId} to ${to} in room ${meetingId}`,
     );
+  });
+
+  // ─── Audio Chunk Forwarding to AI Service ───────────────────────
+  socket.on("audio-chunk", ({ meetingId, audioData, mimeType }) => {
+    if (!meetingId) {
+      socket.emit("error", { message: "Meeting ID is required" });
+      return;
+    }
+
+    if (!isUserInRoom(meetingId, socket.user.userId)) {
+      socket.emit("error", { message: "You are not part of this meeting" });
+      return;
+    }
+
+    if (!audioData || !audioData.length) {
+      return; // silently ignore empty chunks
+    }
+
+    // Convert to Buffer if received as ArrayBuffer/Uint8Array
+    const buffer = Buffer.from(audioData);
+
+    // Fire-and-forget: forward to AI service, never block signaling
+    forwardAudioChunk({
+      roomId: meetingId,
+      userId: socket.user.userId,
+      userName: socket.user.name,
+      audioData: buffer,
+      mimeType: mimeType || "audio/webm",
+      token: socket.handshake.auth?.token,
+    })
+      .then((result) => {
+        if (result) {
+          // Optionally emit transcription back to the room
+          if (result.transcription) {
+            io.to(meetingId).emit("transcription", {
+              userId: socket.user.userId,
+              name: socket.user.name,
+              text: result.transcription,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        }
+      })
+      .catch(() => {}); // errors already logged in forwarder
   });
 
   // Handle send-message
@@ -385,6 +442,12 @@ export const registerRoomHandlers = (socket, io) => {
         s.leave(meetingId);
         s.meetingId = null;
       }
+
+      // Notify AI service to finalize session (fire-and-forget)
+      notifySessionEnd({
+        roomId: meetingId,
+        token: socket.handshake.auth?.token,
+      }).catch(() => {});
 
       console.log(`Meeting ${meetingId} ended by host ${socket.user.userId}`);
     } catch (error) {
