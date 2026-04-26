@@ -165,7 +165,7 @@ export const notifySessionEnd = async ({ roomId, token }) => {
         method: "POST",
         headers,
         body: JSON.stringify({ roomId }),
-        signal: AbortSignal.timeout(5_000),
+        signal: AbortSignal.timeout(30_000),
       },
     );
 

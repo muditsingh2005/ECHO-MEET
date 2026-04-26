@@ -12,6 +12,7 @@ const AI_BASE_URL =
 const aiApi = axios.create({
   baseURL: `${AI_BASE_URL}/api/v1/ai`,
   headers: { "Content-Type": "application/json" },
+  timeout: 60_000,
 });
 
 // Attach JWT from localStorage on every request
