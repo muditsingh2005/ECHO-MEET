@@ -1,28 +1,52 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { getSessionTranscript, summarizeTranscript } from "../services/aiApi";
+import {
+  hasSummaryData,
+  hasTranscriptData,
+  normalizeAIResultsPayload,
+} from "../services/aiResultsResilience";
 import "./MeetingResultsPage.css";
 
 // ─── Icons ──────────────────────────────────────────────────────
 
 const ArrowLeftIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <line x1="19" y1="12" x2="5" y2="12" />
     <polyline points="12 19 5 12 12 5" />
   </svg>
 );
 
 const ClipboardIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
   </svg>
 );
 
 const DownloadIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
     <polyline points="7 10 12 15 17 10" />
     <line x1="12" y1="15" x2="12" y2="3" />
@@ -30,15 +54,27 @@ const DownloadIcon = () => (
 );
 
 const CheckIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <polyline points="20 6 9 17 4 12" />
   </svg>
 );
 
 const SummaryIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <circle cx="12" cy="12" r="10" />
     <line x1="12" y1="16" x2="12" y2="12" />
     <line x1="12" y1="8" x2="12.01" y2="8" />
@@ -46,8 +82,14 @@ const SummaryIcon = () => (
 );
 
 const TranscriptIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
     <polyline points="14 2 14 8 20 8" />
     <line x1="16" y1="13" x2="8" y2="13" />
@@ -56,8 +98,14 @@ const TranscriptIcon = () => (
 );
 
 const StatsIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <line x1="18" y1="20" x2="18" y2="10" />
     <line x1="12" y1="20" x2="12" y2="4" />
     <line x1="6" y1="20" x2="6" y2="14" />
@@ -65,35 +113,66 @@ const StatsIcon = () => (
 );
 
 const KeyIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
   </svg>
 );
 
 const ActionIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <polyline points="9 11 12 14 22 4" />
     <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
   </svg>
 );
 
 const DecisionIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
     <polyline points="22 4 12 14.01 9 11.01" />
   </svg>
 );
 
 const TagIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
     <line x1="7" y1="7" x2="7.01" y2="7" />
   </svg>
 );
+
+const VIEW_STATES = {
+  SUCCESS: "success",
+  PARTIAL: "partial",
+  EMPTY: "empty",
+  ERROR: "error",
+};
 
 // ─── Component ──────────────────────────────────────────────────
 
@@ -105,23 +184,134 @@ const MeetingResultsPage = () => {
   const [activeTab, setActiveTab] = useState("summary");
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [viewState, setViewState] = useState(VIEW_STATES.SUCCESS);
   const [error, setError] = useState("");
+  const [notices, setNotices] = useState([]);
 
-  // Data from location state (passed from MeetingPage)
-  const [resultData, setResultData] = useState(null);
+  const [resultData, setResultData] = useState({
+    transcript: null,
+    meetingSummary: null,
+    summary: null,
+    phases: null,
+  });
 
   useEffect(() => {
-    // Get data from navigation state
-    const stateData = location.state?.aiResults;
-    if (stateData) {
-      setResultData(stateData);
+    let cancelled = false;
+
+    const initializeResults = async () => {
+      setLoading(true);
+      setError("");
+      setNotices([]);
+
+      const stateData = location.state?.aiResults;
+      const normalizedState = normalizeAIResultsPayload(stateData);
+
+      let nextData = {
+        transcript: normalizedState.transcript,
+        meetingSummary: normalizedState.meetingSummary,
+        summary: normalizedState.summary,
+        phases: normalizedState.phases,
+      };
+
+      let hasTranscript = normalizedState.hasTranscript;
+      let hasSummary = normalizedState.hasSummary;
+      let serviceUnavailable = false;
+      const nextNotices = [];
+
+      if (stateData?.fetchErrorMessage) {
+        nextNotices.push(stateData.fetchErrorMessage);
+      }
+
+      if (!hasTranscript && meetingId) {
+        try {
+          const transcriptResponse = await getSessionTranscript(meetingId);
+          const recovered = normalizeAIResultsPayload({
+            transcript: transcriptResponse?.transcript,
+          });
+
+          if (recovered.hasTranscript) {
+            nextData = { ...nextData, transcript: recovered.transcript };
+            hasTranscript = true;
+          } else {
+            nextNotices.push("Transcript not available.");
+          }
+        } catch (err) {
+          nextNotices.push("Transcript not available.");
+          if (err?.type !== "not_found") {
+            serviceUnavailable = true;
+          }
+        }
+      }
+
+      if (!hasSummary && nextData?.transcript?.fullText) {
+        try {
+          const summaryResponse = await summarizeTranscript(
+            nextData.transcript.fullText,
+          );
+          const recovered = normalizeAIResultsPayload({
+            meetingSummary: summaryResponse?.summary,
+          });
+
+          if (recovered.hasSummary) {
+            nextData = {
+              ...nextData,
+              meetingSummary: recovered.meetingSummary,
+            };
+            hasSummary = true;
+          } else {
+            nextNotices.push("Summary generation failed.");
+          }
+        } catch (err) {
+          nextNotices.push("Summary generation failed.");
+          if (["network", "timeout", "service"].includes(err?.type)) {
+            serviceUnavailable = true;
+          }
+        }
+      }
+
+      if (
+        !hasTranscript &&
+        !nextNotices.includes("Transcript not available.")
+      ) {
+        nextNotices.push("Transcript not available.");
+      }
+
+      if (!hasSummary && !nextNotices.includes("Summary generation failed.")) {
+        nextNotices.push("Summary generation failed.");
+      }
+
+      if (
+        serviceUnavailable &&
+        !nextNotices.includes("Service temporarily unavailable.")
+      ) {
+        nextNotices.push("Service temporarily unavailable.");
+      }
+
+      if (cancelled) return;
+
+      setResultData(nextData);
+      setNotices(nextNotices);
+
+      if (hasTranscript && hasSummary) {
+        setViewState(VIEW_STATES.SUCCESS);
+      } else if (hasTranscript || hasSummary) {
+        setViewState(VIEW_STATES.PARTIAL);
+      } else if (serviceUnavailable) {
+        setViewState(VIEW_STATES.ERROR);
+        setError("Service temporarily unavailable.");
+      } else {
+        setViewState(VIEW_STATES.EMPTY);
+      }
+
       setLoading(false);
-    } else {
-      // No data passed — perhaps user navigated directly
-      setError("No meeting results available. The meeting data was not found.");
-      setLoading(false);
-    }
-  }, [location.state]);
+    };
+
+    initializeResults();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [location.state, meetingId]);
 
   const transcript = resultData?.transcript;
   const meetingSummary = resultData?.meetingSummary;
@@ -236,7 +426,10 @@ const MeetingResultsPage = () => {
         <div className="results-circle-2" />
         <header className="results-header">
           <div className="results-header-left">
-            <button className="btn-back-results" onClick={() => navigate("/home")}>
+            <button
+              className="btn-back-results"
+              onClick={() => navigate("/home")}
+            >
               <ArrowLeftIcon /> Home
             </button>
           </div>
@@ -253,11 +446,40 @@ const MeetingResultsPage = () => {
     );
   }
 
+  if (viewState === VIEW_STATES.EMPTY) {
+    return (
+      <div className="results-page">
+        <div className="results-circle-1" />
+        <div className="results-circle-2" />
+        <header className="results-header">
+          <div className="results-header-left">
+            <button
+              className="btn-back-results"
+              onClick={() => navigate("/home")}
+            >
+              <ArrowLeftIcon /> Home
+            </button>
+          </div>
+        </header>
+        <div className="results-error">
+          <div className="error-icon">!</div>
+          <p>No meeting results available yet.</p>
+          <span>
+            Transcript or summary could not be generated for this meeting.
+          </span>
+          <button className="btn-retry" onClick={() => navigate("/home")}>
+            Go Home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ── Tab count helpers ──────────────────────────────────────
 
   const segmentCount = transcript?.segments?.length || 0;
   const keyPointCount = meetingSummary?.keyPoints?.length || 0;
-  const actionCount = meetingSummary?.actionItems?.length || 0;
+  const canExport = Boolean(getFullTextForExport().trim());
 
   // ── Render ─────────────────────────────────────────────────
 
@@ -269,14 +491,18 @@ const MeetingResultsPage = () => {
       {/* Header */}
       <header className="results-header">
         <div className="results-header-left">
-          <button className="btn-back-results" onClick={() => navigate("/home")}>
+          <button
+            className="btn-back-results"
+            onClick={() => navigate("/home")}
+          >
             <ArrowLeftIcon /> Home
           </button>
           <div className="results-title-block">
             <h1>{meetingSummary?.title || "Meeting Results"}</h1>
             <p>
               {sessionSummary?.users?.length || 0} participants
-              {sessionSummary?.endedAt && ` • Ended ${formatTime(sessionSummary.endedAt)}`}
+              {sessionSummary?.endedAt &&
+                ` • Ended ${formatTime(sessionSummary.endedAt)}`}
             </p>
           </div>
         </div>
@@ -284,16 +510,36 @@ const MeetingResultsPage = () => {
           <button
             className={`btn-action ${copied ? "copied" : ""}`}
             onClick={handleCopy}
+            disabled={!canExport}
             id="btn-copy-results"
           >
             {copied ? <CheckIcon /> : <ClipboardIcon />}
             {copied ? "Copied!" : "Copy All"}
           </button>
-          <button className="btn-action" onClick={handleDownload} id="btn-download-results">
+          <button
+            className="btn-action"
+            onClick={handleDownload}
+            disabled={!canExport}
+            id="btn-download-results"
+          >
             <DownloadIcon /> Download
           </button>
         </div>
       </header>
+
+      {(viewState === VIEW_STATES.PARTIAL || notices.length > 0) && (
+        <div className="results-status-banner" role="status">
+          {viewState === VIEW_STATES.PARTIAL && (
+            <p>
+              Some meeting insights are unavailable, but partial results are
+              shown.
+            </p>
+          )}
+          {notices.map((notice, index) => (
+            <p key={`${notice}-${index}`}>{notice}</p>
+          ))}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="results-tabs">
@@ -303,7 +549,9 @@ const MeetingResultsPage = () => {
           id="tab-summary"
         >
           <SummaryIcon /> Summary
-          {keyPointCount > 0 && <span className="tab-badge">{keyPointCount}</span>}
+          {keyPointCount > 0 && (
+            <span className="tab-badge">{keyPointCount}</span>
+          )}
         </button>
         <button
           className={`results-tab ${activeTab === "transcript" ? "active" : ""}`}
@@ -311,7 +559,9 @@ const MeetingResultsPage = () => {
           id="tab-transcript"
         >
           <TranscriptIcon /> Transcript
-          {segmentCount > 0 && <span className="tab-badge">{segmentCount}</span>}
+          {segmentCount > 0 && (
+            <span className="tab-badge">{segmentCount}</span>
+          )}
         </button>
         <button
           className={`results-tab ${activeTab === "stats" ? "active" : ""}`}
@@ -324,9 +574,7 @@ const MeetingResultsPage = () => {
 
       {/* Content */}
       <div className="results-content">
-        {activeTab === "summary" && (
-          <SummaryTab summary={meetingSummary} />
-        )}
+        {activeTab === "summary" && <SummaryTab summary={meetingSummary} />}
         {activeTab === "transcript" && (
           <TranscriptTab transcript={transcript} formatTime={formatTime} />
         )}
@@ -346,13 +594,11 @@ const MeetingResultsPage = () => {
 // ─── Sub-Components ─────────────────────────────────────────────
 
 const SummaryTab = ({ summary }) => {
-  if (!summary) {
+  if (!hasSummaryData(summary)) {
     return (
       <div className="summary-container">
         <div className="summary-card">
-          <p className="empty-list">
-            No AI summary was generated for this meeting. The transcript may have been too short.
-          </p>
+          <p className="empty-list">Summary generation failed.</p>
         </div>
       </div>
     );
@@ -364,7 +610,9 @@ const SummaryTab = ({ summary }) => {
       {summary.overview && (
         <div className="summary-card">
           <div className="summary-card-header">
-            <div className="summary-card-icon accent"><SummaryIcon /></div>
+            <div className="summary-card-icon accent">
+              <SummaryIcon />
+            </div>
             <h3>Overview</h3>
           </div>
           <p className="summary-overview">{summary.overview}</p>
@@ -374,7 +622,9 @@ const SummaryTab = ({ summary }) => {
       {/* Key Points */}
       <div className="summary-card">
         <div className="summary-card-header">
-          <div className="summary-card-icon accent"><KeyIcon /></div>
+          <div className="summary-card-icon accent">
+            <KeyIcon />
+          </div>
           <h3>Key Points</h3>
         </div>
         {summary.keyPoints?.length > 0 ? (
@@ -382,7 +632,7 @@ const SummaryTab = ({ summary }) => {
             {summary.keyPoints.map((point, i) => (
               <li key={i} className="key-point-item">
                 <div className="key-point-bullet" />
-                <span>{point}</span>
+                <span>{point || "No key point text available"}</span>
               </li>
             ))}
           </ul>
@@ -394,7 +644,9 @@ const SummaryTab = ({ summary }) => {
       {/* Action Items */}
       <div className="summary-card">
         <div className="summary-card-header">
-          <div className="summary-card-icon success"><ActionIcon /></div>
+          <div className="summary-card-icon success">
+            <ActionIcon />
+          </div>
           <h3>Action Items</h3>
         </div>
         {summary.actionItems?.length > 0 ? (
@@ -403,11 +655,17 @@ const SummaryTab = ({ summary }) => {
               <div key={i} className="action-item">
                 <div className="action-checkbox" />
                 <div className="action-details">
-                  <p className="action-task">{item.task}</p>
+                  <p className="action-task">
+                    {item?.task || "Untitled action item"}
+                  </p>
                   <div className="action-meta">
-                    <span className="action-assignee">{item.assignee}</span>
-                    <span className={`action-priority ${item.priority}`}>
-                      {item.priority}
+                    <span className="action-assignee">
+                      {item?.assignee || "Unassigned"}
+                    </span>
+                    <span
+                      className={`action-priority ${item?.priority || "medium"}`}
+                    >
+                      {item?.priority || "medium"}
                     </span>
                   </div>
                 </div>
@@ -422,7 +680,9 @@ const SummaryTab = ({ summary }) => {
       {/* Decisions */}
       <div className="summary-card">
         <div className="summary-card-header">
-          <div className="summary-card-icon danger"><DecisionIcon /></div>
+          <div className="summary-card-icon danger">
+            <DecisionIcon />
+          </div>
           <h3>Decisions Made</h3>
         </div>
         {summary.decisions?.length > 0 ? (
@@ -430,7 +690,7 @@ const SummaryTab = ({ summary }) => {
             {summary.decisions.map((decision, i) => (
               <li key={i} className="decision-item">
                 <span className="decision-icon">✓</span>
-                <span>{decision}</span>
+                <span>{decision || "No decision text available"}</span>
               </li>
             ))}
           </ul>
@@ -443,12 +703,16 @@ const SummaryTab = ({ summary }) => {
       {summary.topics?.length > 0 && (
         <div className="summary-card">
           <div className="summary-card-header">
-            <div className="summary-card-icon info"><TagIcon /></div>
+            <div className="summary-card-icon info">
+              <TagIcon />
+            </div>
             <h3>Topics Discussed</h3>
           </div>
           <div className="topics-list">
             {summary.topics.map((topic, i) => (
-              <span key={i} className="topic-tag">{topic}</span>
+              <span key={i} className="topic-tag">
+                {topic || "Untitled topic"}
+              </span>
             ))}
           </div>
         </div>
@@ -458,28 +722,38 @@ const SummaryTab = ({ summary }) => {
 };
 
 const TranscriptTab = ({ transcript, formatTime }) => {
-  if (!transcript?.segments?.length) {
+  if (!hasTranscriptData(transcript)) {
     return (
       <div className="transcript-container">
         <div className="summary-card">
-          <p className="empty-list">No transcript available for this meeting.</p>
+          <p className="empty-list">Transcript not available.</p>
         </div>
       </div>
     );
   }
 
+  const segments = Array.isArray(transcript?.segments)
+    ? transcript.segments
+    : [];
+
   return (
     <div className="transcript-container">
-      {transcript.segments.map((seg, i) => (
+      {segments.map((seg, i) => (
         <div key={i} className="transcript-segment">
           <div className="transcript-meta">
-            <span className="transcript-speaker">{seg.speaker}</span>
+            <span className="transcript-speaker">
+              {seg?.speaker || "Speaker"}
+            </span>
             <span className="transcript-time">
-              {formatTime(seg.startTime)}
-              {seg.endTime && seg.endTime !== seg.startTime && ` – ${formatTime(seg.endTime)}`}
+              {formatTime(seg?.startTime)}
+              {seg?.endTime &&
+                seg.endTime !== seg.startTime &&
+                ` – ${formatTime(seg.endTime)}`}
             </span>
           </div>
-          <p className="transcript-text">{seg.text}</p>
+          <p className="transcript-text">
+            {seg?.text || "No transcript text available"}
+          </p>
         </div>
       ))}
     </div>
@@ -487,14 +761,26 @@ const TranscriptTab = ({ transcript, formatTime }) => {
 };
 
 const StatsTab = ({ transcript, session, summary, formatDuration }) => {
-  const totalWords = transcript?.speakerStats?.reduce(
-    (sum, s) => sum + s.wordCount, 0
-  ) || 0;
-  const totalSegments = transcript?.segments?.length || 0;
-  const speakerCount = transcript?.speakerStats?.length || 0;
-  const meetingDuration = transcript?.duration?.totalMs || session?.durationMs || 0;
+  const speakerStats = Array.isArray(transcript?.speakerStats)
+    ? transcript.speakerStats
+    : [];
+  const totalWords = speakerStats.reduce(
+    (sum, stat) =>
+      sum + (Number.isFinite(stat?.wordCount) ? stat.wordCount : 0),
+    0,
+  );
+  const totalSegments = Array.isArray(transcript?.segments)
+    ? transcript.segments.length
+    : 0;
+  const speakerCount = speakerStats.length;
+  const meetingDuration =
+    (Number.isFinite(transcript?.duration?.totalMs)
+      ? transcript.duration.totalMs
+      : 0) || (Number.isFinite(session?.durationMs) ? session.durationMs : 0);
   const maxWords = Math.max(
-    ...(transcript?.speakerStats?.map((s) => s.wordCount) || [1]),
+    ...(speakerStats.map((s) =>
+      Number.isFinite(s?.wordCount) ? s.wordCount : 0,
+    ) || [1]),
   );
 
   return (
@@ -538,7 +824,7 @@ const StatsTab = ({ transcript, session, summary, formatDuration }) => {
       </div>
 
       {/* Speaker breakdown */}
-      {transcript?.speakerStats?.length > 0 && (
+      {speakerStats.length > 0 && (
         <div className="speaker-stats-card">
           <h3>Speaker Breakdown</h3>
           <table className="speaker-stats-table">
@@ -551,19 +837,52 @@ const StatsTab = ({ transcript, session, summary, formatDuration }) => {
               </tr>
             </thead>
             <tbody>
-              {transcript.speakerStats.map((stat, i) => (
+              {speakerStats.map((stat, i) => (
                 <tr key={i}>
-                  <td>{stat.name}</td>
-                  <td>{stat.wordCount.toLocaleString()}</td>
-                  <td>{stat.segmentCount}</td>
+                  <td>{stat?.name || "Speaker"}</td>
+                  <td>
+                    {(Number.isFinite(stat?.wordCount)
+                      ? stat.wordCount
+                      : 0
+                    ).toLocaleString()}
+                  </td>
+                  <td>
+                    {Number.isFinite(stat?.segmentCount)
+                      ? stat.segmentCount
+                      : 0}
+                  </td>
                   <td>
                     <div className="word-bar-cell">
                       <div
                         className="word-bar"
-                        style={{ width: `${(stat.wordCount / maxWords) * 100}%` }}
+                        style={{
+                          width: `${
+                            maxWords > 0
+                              ? ((Number.isFinite(stat?.wordCount)
+                                  ? stat.wordCount
+                                  : 0) /
+                                  maxWords) *
+                                100
+                              : 0
+                          }%`,
+                        }}
                       />
-                      <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                        {totalWords > 0 ? Math.round((stat.wordCount / totalWords) * 100) : 0}%
+                      <span
+                        style={{
+                          fontSize: "0.75rem",
+                          color: "var(--text-muted)",
+                        }}
+                      >
+                        {totalWords > 0
+                          ? Math.round(
+                              ((Number.isFinite(stat?.wordCount)
+                                ? stat.wordCount
+                                : 0) /
+                                totalWords) *
+                                100,
+                            )
+                          : 0}
+                        %
                       </span>
                     </div>
                   </td>

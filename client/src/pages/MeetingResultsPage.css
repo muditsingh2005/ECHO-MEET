@@ -144,6 +144,12 @@
   transform: translateY(-1px);
 }
 
+.btn-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .btn-action.copied {
   background: var(--success-light);
   color: var(--success);
@@ -183,7 +189,9 @@
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Error State ── */
@@ -238,6 +246,26 @@
 .btn-retry:hover {
   background: var(--accent-hover);
   box-shadow: var(--shadow-accent);
+}
+
+.results-status-banner {
+  margin: 12px 24px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--accent-light);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  z-index: 2;
+}
+
+.results-status-banner p {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.results-status-banner p + p {
+  margin-top: 6px;
 }
 
 /* ── Tabs ── */

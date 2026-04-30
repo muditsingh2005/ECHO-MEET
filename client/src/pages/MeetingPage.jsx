@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../context";
 import api from "../services/api";
 import { endAISession } from "../services/aiApi";
+import { normalizeAIResultsPayload } from "../services/aiResultsResilience";
 import { connectSocket, disconnectSocket, getSocket } from "../services/socket";
 import "./MeetingPage.css";
 
@@ -621,22 +622,34 @@ const MeetingPage = () => {
     if (!isHost) return;
     if (
       !window.confirm("Are you sure you want to end this meeting for everyone?")
-    ) return;
+    )
+      return;
 
     // Try to fetch AI results before ending
     let aiResults = null;
     try {
-      const result = await endAISession(meetingId);
-      if (result?.success) {
-        aiResults = {
-          summary: result.summary,
-          transcript: result.transcript,
-          meetingSummary: result.meetingSummary,
-          phases: result.phases,
-        };
-      }
+      const result = await endAISession(meetingId, {
+        retries: 2,
+        retryDelayMs: 1200,
+      });
+      const normalized = normalizeAIResultsPayload(result);
+
+      aiResults = {
+        summary: normalized.summary,
+        transcript: normalized.transcript,
+        meetingSummary: normalized.meetingSummary,
+        phases: normalized.phases,
+      };
     } catch (err) {
       console.warn("[MeetingPage] Could not fetch AI results:", err.message);
+      aiResults = {
+        summary: null,
+        transcript: null,
+        meetingSummary: null,
+        phases: null,
+        fetchErrorMessage:
+          err.userMessage || "Service temporarily unavailable.",
+      };
     }
 
     // Emit end-meeting with AI results so they're broadcast to all
