@@ -11,6 +11,10 @@ import {
 import { transcribeAudio } from "../services/transcription.service.js";
 import { assembleTranscript } from "../services/transcript.assembly.service.js";
 import { summarizeMeeting } from "../services/summarization.service.js";
+import { validators } from "../utils/validators.js";
+import { responses } from "../utils/responses.js";
+import { logger } from "../utils/logger.js";
+import { ValidationError, NotFoundError, AppError } from "../utils/errors.js";
 
 /**
  * POST /api/v1/ai/start-session
@@ -19,34 +23,34 @@ import { summarizeMeeting } from "../services/summarization.service.js";
  * Creates an AI session for the given meeting room.
  * Idempotent — calling again with the same roomId returns the existing session.
  */
-export const startSessionHandler = (req, res) => {
+export const startSessionHandler = (req, res, next) => {
   try {
     const { roomId } = req.body;
 
-    if (!roomId) {
-      return res.status(400).json({
-        success: false,
-        message: "roomId is required",
-      });
-    }
+    const validatedRoomId = validators.roomId(roomId);
 
     const { session, created } = createSession(
-      roomId,
+      validatedRoomId,
       req.user.userId,
       req.user.name,
     );
 
-    return res.status(created ? 201 : 200).json({
-      success: true,
-      message: created ? "Session created" : "Session already exists",
-      session,
+    logger.info("[START-SESSION] Session created", {
+      roomId: validatedRoomId,
+      userId: req.user.userId,
+      isNew: created,
     });
+
+    return res
+      .status(created ? 201 : 200)
+      .json(
+        responses.success(
+          session,
+          created ? "Session created" : "Session already exists",
+        ),
+      );
   } catch (error) {
-    console.error("[AI-CONTROLLER] startSession error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to start session",
-    });
+    next(error);
   }
 };
 
@@ -57,70 +61,74 @@ export const startSessionHandler = (req, res) => {
  * Appends an audio chunk to the active session and optionally
  * appends a transcript line if `transcript` text is provided.
  */
-export const streamAudioHandler = (req, res) => {
+export const streamAudioHandler = (req, res, next) => {
   try {
     const { roomId, transcript } = req.body;
 
-    if (!roomId) {
-      return res.status(400).json({
-        success: false,
-        message: "roomId is required",
-      });
+    const validatedRoomId = validators.roomId(roomId);
+
+    if (!req.file?.buffer) {
+      throw new ValidationError("No audio file provided");
     }
 
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: "No audio file provided",
-      });
-    }
+    validators.audioBuffer(req.file.buffer);
 
-    // Verify session exists
-    const session = getSession(roomId);
+    const session = getSession(validatedRoomId);
     if (!session) {
-      return res.status(404).json({
-        success: false,
-        message: "No active session for this room. Call /start-session first.",
-      });
-    }
-
-    // Append audio chunk (tagged with userId)
-    const audioResult = appendAudioChunk(roomId, req.file.buffer, req.user.userId);
-    if (!audioResult.success) {
-      return res.status(404).json({
-        success: false,
-        message: audioResult.error,
-      });
-    }
-
-    // Optionally append transcript text alongside the audio
-    let transcriptResult = null;
-    if (transcript && transcript.trim()) {
-      transcriptResult = appendTranscript(
-        roomId,
-        req.user.userId,
-        req.user.name,
-        transcript.trim(),
+      throw new NotFoundError(
+        "No active session for this room. Call /start-session first.",
       );
     }
 
-    return res.status(200).json({
-      success: true,
-      message: "Audio chunk received",
+    const audioResult = appendAudioChunk(
+      validatedRoomId,
+      req.file.buffer,
+      req.user.userId,
+    );
+
+    if (!audioResult.success) {
+      throw new AppError(audioResult.error, 500, "AUDIO_CHUNK_ERROR");
+    }
+
+    let transcriptResult = null;
+    if (transcript && transcript.trim()) {
+      try {
+        const validatedTranscript = validators.transcript(transcript);
+        transcriptResult = appendTranscript(
+          validatedRoomId,
+          req.user.userId,
+          req.user.name,
+          validatedTranscript,
+        );
+      } catch (transcriptErr) {
+        logger.warn("[STREAM-AUDIO] Transcript validation skipped", {
+          error: transcriptErr.message,
+        });
+      }
+    }
+
+    logger.debug("[STREAM-AUDIO] Chunk received", {
+      roomId: validatedRoomId,
       chunkIndex: audioResult.chunkIndex,
-      totalChunks: audioResult.totalChunks,
-      receivedBytes: req.file.size,
-      ...(transcriptResult && {
-        transcriptEntry: transcriptResult.entryIndex,
-        totalTranscriptEntries: transcriptResult.totalEntries,
-      }),
+      bytes: req.file.size,
     });
+
+    return res.status(200).json(
+      responses.success(
+        {
+          chunkIndex: audioResult.chunkIndex,
+          totalChunks: audioResult.totalChunks,
+          receivedBytes: req.file.size,
+          ...(transcriptResult && {
+            transcriptEntry: transcriptResult.entryIndex,
+            totalTranscriptEntries: transcriptResult.totalEntries,
+          }),
+        },
+        "Audio chunk received",
+      ),
+    );
   } catch (error) {
-    console.error("[AI-CONTROLLER] streamAudio error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to process audio chunk",
-    });
+    next(error);
   }
 };
 
@@ -139,7 +147,7 @@ export const streamAudioHandler = (req, res) => {
  *   - Summarization failures → graceful degradation (transcript still returned)
  *   - Each phase reports its own status and timing in the response
  */
-export const endSessionHandler = async (req, res) => {
+export const endSessionHandler = async (req, res, next) => {
   const startTime = Date.now();
   const phases = {
     sessionFinalized: { status: "pending", durationMs: 0 },
@@ -149,29 +157,15 @@ export const endSessionHandler = async (req, res) => {
 
   try {
     const { roomId } = req.body;
+    const validatedRoomId = validators.roomId(roomId);
 
-    if (!roomId) {
-      return res.status(400).json({
-        success: false,
-        message: "roomId is required",
-      });
-    }
-
-    // ── Phase 1: Finalize session ──────────────────────────────
-    // Delete from memory FIRST to guarantee resource cleanup.
-    // We capture the snapshot before deletion so downstream steps
-    // can still process the data.
     const p1Start = Date.now();
-    const snapshot = endSession(roomId);
+    const snapshot = endSession(validatedRoomId);
     phases.sessionFinalized.durationMs = Date.now() - p1Start;
 
     if (!snapshot) {
       phases.sessionFinalized.status = "not_found";
-      return res.status(404).json({
-        success: false,
-        message: "No active session found for this room",
-        phases,
-      });
+      throw new NotFoundError("No active session found for this room");
     }
 
     phases.sessionFinalized.status = "success";
@@ -182,12 +176,13 @@ export const endSessionHandler = async (req, res) => {
       audioBytes: snapshot.totalAudioBytes,
     };
 
-    console.log(
-      `[END-SESSION] Phase 1 complete — room=${roomId} ` +
-        `users=${snapshot.users.length} chunks=${snapshot.transcript.length}`,
-    );
+    logger.info("[END-SESSION] Phase 1 complete", {
+      roomId: validatedRoomId,
+      users: snapshot.users.length,
+      chunks: snapshot.transcript.length,
+      durationMs: phases.sessionFinalized.durationMs,
+    });
 
-    // ── Phase 2: Assemble transcript ───────────────────────────
     let assembled = null;
     const p2Start = Date.now();
 
@@ -204,21 +199,21 @@ export const endSessionHandler = async (req, res) => {
         ),
       };
 
-      console.log(
-        `[END-SESSION] Phase 2 complete — room=${roomId} ` +
-          `segments=${assembled.segments.length} ` +
-          `words=${phases.transcriptAssembled.details.totalWords}`,
-      );
+      logger.info("[END-SESSION] Phase 2 complete", {
+        roomId: validatedRoomId,
+        segments: assembled.segments.length,
+        words: phases.transcriptAssembled.details.totalWords,
+        durationMs: phases.transcriptAssembled.durationMs,
+      });
     } catch (assemblyError) {
       phases.transcriptAssembled.durationMs = Date.now() - p2Start;
       phases.transcriptAssembled.status = "failed";
       phases.transcriptAssembled.error = assemblyError.message;
 
-      console.error(
-        `[END-SESSION] Phase 2 FAILED — room=${roomId}: ${assemblyError.message}`,
-      );
+      logger.error("[END-SESSION] Phase 2 FAILED", assemblyError, {
+        roomId: validatedRoomId,
+      });
 
-      // Transcript assembly is critical — return what we have
       return res.status(200).json({
         success: true,
         message: "Session ended (transcript assembly failed)",
@@ -230,8 +225,6 @@ export const endSessionHandler = async (req, res) => {
       });
     }
 
-    // ── Phase 3: Generate meeting summary ──────────────────────
-    // Only attempt if we have actual transcript content.
     let meetingSummary = null;
     const p3Start = Date.now();
 
@@ -240,9 +233,10 @@ export const endSessionHandler = async (req, res) => {
       phases.summaryGenerated.status = "skipped";
       phases.summaryGenerated.reason = "Empty transcript";
 
-      console.log(
-        `[END-SESSION] Phase 3 skipped — room=${roomId} (empty transcript)`,
-      );
+      logger.info("[END-SESSION] Phase 3 skipped", {
+        roomId: validatedRoomId,
+        reason: "Empty transcript",
+      });
     } else {
       try {
         const summaryResult = await summarizeMeeting(assembled.fullText, {
@@ -256,40 +250,41 @@ export const endSessionHandler = async (req, res) => {
           meetingSummary = summaryResult.summary;
           phases.summaryGenerated.status = "success";
 
-          console.log(
-            `[END-SESSION] Phase 3 complete — room=${roomId} ` +
-              `keyPoints=${meetingSummary.keyPoints?.length || 0} ` +
-              `actions=${meetingSummary.actionItems?.length || 0} ` +
-              `decisions=${meetingSummary.decisions?.length || 0}`,
-          );
+          logger.info("[END-SESSION] Phase 3 complete", {
+            roomId: validatedRoomId,
+            keyPoints: meetingSummary.keyPoints?.length || 0,
+            actions: meetingSummary.actionItems?.length || 0,
+            decisions: meetingSummary.decisions?.length || 0,
+            durationMs: phases.summaryGenerated.durationMs,
+          });
         } else {
           phases.summaryGenerated.status = "failed";
           phases.summaryGenerated.error = summaryResult.error;
 
-          console.warn(
-            `[END-SESSION] Phase 3 FAILED — room=${roomId}: ${summaryResult.error}`,
-          );
+          logger.warn("[END-SESSION] Phase 3 failed", {
+            roomId: validatedRoomId,
+            error: summaryResult.error,
+          });
         }
       } catch (summaryError) {
         phases.summaryGenerated.durationMs = Date.now() - p3Start;
         phases.summaryGenerated.status = "failed";
         phases.summaryGenerated.error = summaryError.message;
 
-        console.error(
-          `[END-SESSION] Phase 3 FAILED (exception) — room=${roomId}: ${summaryError.message}`,
-        );
+        logger.error("[END-SESSION] Phase 3 exception", summaryError, {
+          roomId: validatedRoomId,
+        });
       }
     }
 
-    // ── Response ───────────────────────────────────────────────
     const totalDurationMs = Date.now() - startTime;
 
-    console.log(
-      `[END-SESSION] Complete — room=${roomId} total=${totalDurationMs}ms ` +
-        `(p1=${phases.sessionFinalized.durationMs}ms ` +
-        `p2=${phases.transcriptAssembled.durationMs}ms ` +
-        `p3=${phases.summaryGenerated.durationMs}ms)`,
-    );
+    logger.info("[END-SESSION] Complete", {
+      roomId: validatedRoomId,
+      totalDurationMs,
+      hasSummary: !!meetingSummary,
+      hasTranscript: !!assembled,
+    });
 
     return res.status(200).json({
       success: true,
@@ -303,14 +298,7 @@ export const endSessionHandler = async (req, res) => {
       totalDurationMs,
     });
   } catch (error) {
-    console.error("[AI-CONTROLLER] endSession fatal error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to end session",
-      error: error.message,
-      phases,
-      totalDurationMs: Date.now() - startTime,
-    });
+    next(error);
   }
 };
 
@@ -335,40 +323,37 @@ function _buildSessionSummary(snapshot) {
  *
  * Returns the assembled transcript for an active session (mid-meeting).
  */
-export const getTranscriptHandler = (req, res) => {
+export const getTranscriptHandler = (req, res, next) => {
   try {
     const { roomId } = req.params;
+    const validatedRoomId = validators.roomId(roomId);
 
-    if (!roomId) {
-      return res.status(400).json({
-        success: false,
-        message: "roomId is required",
-      });
-    }
-
-    const rawTranscript = getTranscript(roomId);
+    const rawTranscript = getTranscript(validatedRoomId);
 
     if (!rawTranscript) {
-      return res.status(404).json({
-        success: false,
-        message: "No active session found for this room",
-      });
+      throw new NotFoundError("No active session found for this room");
     }
 
     const assembled = assembleTranscript(rawTranscript);
+    responses.validateDataPresence(assembled, "transcript");
 
-    return res.status(200).json({
-      success: true,
-      roomId,
-      entryCount: rawTranscript.length,
-      transcript: assembled,
+    logger.debug("[GET-TRANSCRIPT] Transcript retrieved", {
+      roomId: validatedRoomId,
+      segments: assembled.segments.length,
     });
+
+    return res.status(200).json(
+      responses.success(
+        {
+          roomId: validatedRoomId,
+          entryCount: rawTranscript.length,
+          transcript: assembled,
+        },
+        "Transcript retrieved",
+      ),
+    );
   } catch (error) {
-    console.error("[AI-CONTROLLER] getTranscript error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to retrieve transcript",
-    });
+    next(error);
   }
 };
 
@@ -378,36 +363,33 @@ export const getTranscriptHandler = (req, res) => {
  *
  * Standalone endpoint for on-demand summarization of any transcript.
  */
-export const summarizeHandler = async (req, res) => {
+export const summarizeHandler = async (req, res, next) => {
   try {
     const { transcript } = req.body;
+    const validatedTranscript = validators.transcript(transcript);
 
-    if (!transcript || !transcript.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "transcript text is required",
-      });
-    }
+    logger.info("[SUMMARIZE] Starting summarization", {
+      transcriptLength: validatedTranscript.length,
+    });
 
-    const result = await summarizeMeeting(transcript.trim());
+    const result = await summarizeMeeting(validatedTranscript);
 
     if (!result.success) {
-      return res.status(500).json({
-        success: false,
-        message: result.error || "Summarization failed",
-      });
+      throw new AppError(result.error || "Summarization failed");
     }
 
-    return res.status(200).json({
-      success: true,
-      summary: result.summary,
+    responses.validateDataPresence(result.summary, "summary");
+
+    logger.info("[SUMMARIZE] Summarization complete", {
+      keyPoints: result.summary.keyPoints?.length || 0,
+      actions: result.summary.actionItems?.length || 0,
     });
+
+    return res
+      .status(200)
+      .json(responses.success(result.summary, "Summary generated"));
   } catch (error) {
-    console.error("[AI-CONTROLLER] summarize error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to generate summary",
-    });
+    next(error);
   }
 };
 
@@ -419,82 +401,78 @@ export const summarizeHandler = async (req, res) => {
  * Auto-creates a session if one doesn't exist for the room.
  * Transcribes audio via Groq Whisper and stores the result.
  */
-export const transcribeChunkHandler = async (req, res) => {
+export const transcribeChunkHandler = async (req, res, next) => {
   try {
     const { roomId, userId, userName, timestamp } = req.body;
 
-    if (!roomId || !userId) {
-      return res.status(400).json({
-        success: false,
-        message: "roomId and userId are required",
-      });
+    const validatedRoomId = validators.roomId(roomId);
+    const validatedUserId = validators.userId(userId);
+    const validatedUserName = validators.userName(userName);
+
+    if (!req.file?.buffer) {
+      throw new ValidationError("No audio file provided");
     }
 
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: "No audio file provided",
-      });
-    }
+    validators.audioBuffer(req.file.buffer);
+    validators.mimeType(req.file.mimetype || "audio/webm");
 
-    // Auto-create session if it doesn't exist yet
-    if (!hasSession(roomId)) {
-      createSession(roomId, userId, userName || "Unknown");
+    if (!hasSession(validatedRoomId)) {
+      createSession(validatedRoomId, validatedUserId, validatedUserName);
     } else {
-      addUser(roomId, userId, userName || "Unknown");
+      addUser(validatedRoomId, validatedUserId, validatedUserName);
     }
 
-    // Append raw audio chunk to session
-    const audioResult = appendAudioChunk(roomId, req.file.buffer, userId);
+    const audioResult = appendAudioChunk(
+      validatedRoomId,
+      req.file.buffer,
+      validatedUserId,
+    );
+
     if (!audioResult.success) {
-      return res.status(500).json({
-        success: false,
-        message: audioResult.error,
-      });
+      throw new AppError(audioResult.error, 500, "AUDIO_CHUNK_ERROR");
     }
 
-    // Transcribe via Groq Whisper
     const result = await transcribeAudio(
       req.file.buffer,
       req.file.mimetype || "audio/webm",
     );
 
-    // If transcription succeeded and is not silent, store it
     let transcription = null;
     if (result.success && result.text) {
       transcription = result.text;
 
       appendTranscript(
-        roomId,
-        userId,
-        userName || "Unknown",
+        validatedRoomId,
+        validatedUserId,
+        validatedUserName,
         transcription,
       );
 
-      console.log(
-        `[TRANSCRIBE] room=${roomId} user=${userId}: "${transcription}"`,
-      );
+      logger.info("[TRANSCRIBE] Audio transcribed", {
+        roomId: validatedRoomId,
+        userId: validatedUserId,
+        textLength: transcription.length,
+      });
+    } else if (result.success && !result.text) {
+      logger.debug("[TRANSCRIBE] Silent audio chunk", {
+        roomId: validatedRoomId,
+        userId: validatedUserId,
+      });
     }
 
-    return res.status(200).json({
-      success: true,
-      message: result.silent
-        ? "Audio chunk received (silent)"
-        : "Audio chunk transcribed",
-      chunkIndex: audioResult.chunkIndex,
-      totalChunks: audioResult.totalChunks,
-      receivedBytes: req.file.size,
-      userId,
-      timestamp: timestamp || new Date().toISOString(),
-      transcription,
-      silent: result.silent || false,
-      ...(result.duration && { audioDuration: result.duration }),
-    });
+    return res.status(200).json(
+      responses.success(
+        {
+          transcription,
+          chunkIndex: audioResult.chunkIndex,
+          totalChunks: audioResult.totalChunks,
+          receivedBytes: req.file.size,
+          silent: !transcription,
+        },
+        transcription ? "Audio transcribed" : "Silent audio chunk received",
+      ),
+    );
   } catch (error) {
-    console.error("[AI-CONTROLLER] transcribeChunk error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to process audio chunk for transcription",
-    });
+    next(error);
   }
 };

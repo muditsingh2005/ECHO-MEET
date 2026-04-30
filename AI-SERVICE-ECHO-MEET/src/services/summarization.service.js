@@ -8,6 +8,14 @@
  * context window, summarizing each chunk, then merging into a final summary.
  */
 
+import {
+  groqWithRetry,
+  validateGroqCompletion,
+  parseGroqJSON,
+} from "../utils/groqResilience.js";
+import { GroqError } from "../utils/errors.js";
+import { logger } from "../utils/logger.js";
+
 // ─── Groq Client (shared lazy-init pattern) ─────────────────────
 
 let _groqClient = null;
@@ -21,15 +29,11 @@ async function getGroqClient() {
 }
 
 const MODEL = "llama-3.3-70b-versatile";
-const MAX_RETRIES = 2;
-const RETRY_DELAY_MS = 1000;
 
 // ~4 chars per token (conservative). Llama 3.3 70B has 128K context,
 // but we aim for ~12K tokens of transcript per chunk to leave room
 // for the system prompt + response.
 const MAX_CHARS_PER_CHUNK = 48_000;
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ─── System Prompts ─────────────────────────────────────────────
 
@@ -92,7 +96,7 @@ Rules:
  */
 export async function summarizeMeeting(fullText, meta = {}) {
   if (!process.env.GROQ_API_KEY) {
-    return { success: false, error: "GROQ_API_KEY not configured" };
+    throw new GroqError("GROQ_API_KEY not configured", null, 500, "GROQ_AUTH");
   }
 
   if (!fullText || fullText.trim().length === 0) {
@@ -103,34 +107,56 @@ export async function summarizeMeeting(fullText, meta = {}) {
   }
 
   try {
-    // If transcript fits in one chunk, summarize directly
     if (fullText.length <= MAX_CHARS_PER_CHUNK) {
+      logger.info("[SUMMARIZE] Single-chunk summarization", {
+        textLength: fullText.length,
+      });
       const summary = await _summarizeChunk(fullText);
       return { success: true, summary };
     }
 
-    // Long transcript: chunk → summarize each → merge
-    console.log(
-      `[SUMMARIZER] Transcript is ${fullText.length} chars — chunking into segments`,
-    );
+    logger.info("[SUMMARIZE] Multi-chunk summarization", {
+      textLength: fullText.length,
+      maxCharsPerChunk: MAX_CHARS_PER_CHUNK,
+    });
+
     const chunks = _chunkTranscript(fullText, MAX_CHARS_PER_CHUNK);
-    console.log(`[SUMMARIZER] Split into ${chunks.length} chunks`);
+    logger.info("[SUMMARIZE] Transcript chunked", {
+      chunkCount: chunks.length,
+    });
 
     const partialSummaries = [];
     for (let i = 0; i < chunks.length; i++) {
-      console.log(
-        `[SUMMARIZER] Summarizing chunk ${i + 1}/${chunks.length} (${chunks[i].length} chars)`,
-      );
+      logger.debug("[SUMMARIZE] Summarizing chunk", {
+        chunkIndex: i + 1,
+        totalChunks: chunks.length,
+        chunkSize: chunks[i].length,
+      });
       const partial = await _summarizeChunk(chunks[i]);
       partialSummaries.push(partial);
     }
 
-    // Merge all partial summaries into one
+    logger.info("[SUMMARIZE] All chunks summarized, merging", {
+      partialSummaryCount: partialSummaries.length,
+    });
+
     const merged = await _mergeSummaries(partialSummaries);
     return { success: true, summary: merged };
   } catch (error) {
-    console.error("[SUMMARIZER] Error:", error.message);
-    return { success: false, error: error.message };
+    if (error instanceof GroqError) {
+      logger.error("[SUMMARIZE] Groq error", error, {
+        groqErrorCode: error.groqErrorCode,
+      });
+      throw error;
+    }
+
+    logger.error("[SUMMARIZE] Unexpected error", error);
+    throw new GroqError(
+      error.message || "Summarization failed",
+      error,
+      500,
+      "GROQ_ERROR",
+    );
   }
 }
 
@@ -142,9 +168,10 @@ export async function summarizeMeeting(fullText, meta = {}) {
 async function _summarizeChunk(transcriptText) {
   const groq = await getGroqClient();
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const completion = await groq.chat.completions.create({
+  return await groqWithRetry(
+    "summarize_chunk",
+    () =>
+      groq.chat.completions.create({
         model: MODEL,
         messages: [
           { role: "system", content: SUMMARIZE_PROMPT },
@@ -156,36 +183,13 @@ async function _summarizeChunk(transcriptText) {
         temperature: 0.3,
         max_tokens: 4096,
         response_format: { type: "json_object" },
-      });
-
-      const content = completion.choices?.[0]?.message?.content;
-      if (!content) throw new Error("Empty response from Groq");
-
-      const parsed = _parseJSON(content);
-
-      if (attempt > 0) {
-        console.log(`[SUMMARIZER] Succeeded on retry ${attempt}`);
-      }
-
-      return _validateSummary(parsed);
-    } catch (error) {
-      if (_isNonRetryable(error)) {
-        throw error;
-      }
-
-      if (attempt === MAX_RETRIES) {
-        throw new Error(
-          `Summarization failed after ${MAX_RETRIES + 1} attempts: ${error.message}`,
-        );
-      }
-
-      const delay = RETRY_DELAY_MS * (attempt + 1);
-      console.warn(
-        `[SUMMARIZER] Attempt ${attempt + 1} failed: ${error.message}. Retrying in ${delay}ms...`,
-      );
-      await sleep(delay);
-    }
-  }
+      }),
+    { maxRetries: 3, timeoutMs: 90000 },
+  ).then((completion) => {
+    const content = validateGroqCompletion(completion);
+    const parsed = parseGroqJSON(content);
+    return _validateSummary(parsed);
+  });
 }
 
 /**
@@ -200,40 +204,34 @@ async function _mergeSummaries(partialSummaries) {
     .map((s, i) => `--- Segment ${i + 1} ---\n${JSON.stringify(s, null, 2)}`)
     .join("\n\n");
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const completion = await groq.chat.completions.create({
-        model: MODEL,
-        messages: [
-          { role: "system", content: MERGE_PROMPT },
-          {
-            role: "user",
-            content: `Here are the partial summaries to merge:\n\n${mergeInput}`,
-          },
-        ],
-        temperature: 0.2,
-        max_tokens: 4096,
-        response_format: { type: "json_object" },
-      });
-
-      const content = completion.choices?.[0]?.message?.content;
-      if (!content) throw new Error("Empty merge response from Groq");
-
-      const parsed = _parseJSON(content);
+  try {
+    return await groqWithRetry(
+      "merge_summaries",
+      () =>
+        groq.chat.completions.create({
+          model: MODEL,
+          messages: [
+            { role: "system", content: MERGE_PROMPT },
+            {
+              role: "user",
+              content: `Here are the partial summaries to merge:\n\n${mergeInput}`,
+            },
+          ],
+          temperature: 0.2,
+          max_tokens: 4096,
+          response_format: { type: "json_object" },
+        }),
+      { maxRetries: 3, timeoutMs: 90000 },
+    ).then((completion) => {
+      const content = validateGroqCompletion(completion);
+      const parsed = parseGroqJSON(content);
       return _validateSummary(parsed);
-    } catch (error) {
-      if (_isNonRetryable(error)) throw error;
-
-      if (attempt === MAX_RETRIES) {
-        // Fallback: manually merge without LLM
-        console.warn(
-          "[SUMMARIZER] Merge LLM call failed, falling back to manual merge",
-        );
-        return _manualMerge(partialSummaries);
-      }
-
-      await sleep(RETRY_DELAY_MS * (attempt + 1));
-    }
+    });
+  } catch (mergeError) {
+    logger.warn("[SUMMARIZE] Merge failed, using manual fallback", {
+      error: mergeError.message,
+    });
+    return _manualMerge(partialSummaries);
   }
 }
 
@@ -325,8 +323,7 @@ function _validateSummary(obj) {
   };
 }
 
-/**
- * Return an empty summary structure.
+/* Return an empty summary structure.
  */
 function _emptySummary() {
   return {
@@ -349,16 +346,21 @@ function _manualMerge(summaries) {
 
   // Dedupe action items by task text
   const seenTasks = new Set();
-  const allActions = summaries.flatMap((s) => s.actionItems).filter((a) => {
-    const key = a.task.toLowerCase().trim();
-    if (seenTasks.has(key)) return false;
-    seenTasks.add(key);
-    return true;
-  });
+  const allActions = summaries
+    .flatMap((s) => s.actionItems)
+    .filter((a) => {
+      const key = a.task.toLowerCase().trim();
+      if (seenTasks.has(key)) return false;
+      seenTasks.add(key);
+      return true;
+    });
 
   return {
     title: summaries[0]?.title || "Meeting Summary",
-    overview: summaries.map((s) => s.overview).filter(Boolean).join(" "),
+    overview: summaries
+      .map((s) => s.overview)
+      .filter(Boolean)
+      .join(" "),
     keyPoints: allKeyPoints,
     actionItems: allActions,
     decisions: allDecisions,

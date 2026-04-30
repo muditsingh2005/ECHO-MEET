@@ -3,6 +3,8 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import aiRoutes from "./routes/ai.routes.js";
+import { errorHandler } from "./middleware/errorHandler.js";
+import { logger } from "./utils/logger.js";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -75,13 +77,15 @@ app.get("/health", (_req, res) => {
 
 app.use("/api/v1/ai", aiLimiter, aiRoutes);
 
-app.use((err, _req, res, _next) => {
-  console.error("[AI-SERVICE ERROR]", err.message);
-
-  if (process.env.NODE_ENV !== "production") {
-    return res.status(500).json({ error: err.message, stack: err.stack });
-  }
-  return res.status(500).json({ error: "Internal server error" });
+app.use("*", (_req, res) => {
+  logger.warn(`[NOT_FOUND] ${_req.method} ${_req.path}`);
+  res.status(404).json({
+    success: false,
+    message: "Endpoint not found",
+    errorCode: "NOT_FOUND",
+  });
 });
+
+app.use(errorHandler);
 
 export { app };

@@ -5,6 +5,13 @@
  * and returns the transcribed text. Silent/empty results are filtered out.
  */
 
+import {
+  groqWithRetry,
+  validateGroqResponse,
+} from "../utils/groqResilience.js";
+import { GroqError } from "../utils/errors.js";
+import { logger } from "../utils/logger.js";
+
 // ─── Groq Client (lazy-initialized) ─────────────────────────────
 // The client is created on first use, not at import time.
 // This lets the server boot even without GROQ_API_KEY set.
@@ -20,13 +27,6 @@ async function getGroqClient() {
 }
 
 const MODEL = "whisper-large-v3-turbo";
-const MAX_RETRIES = 2;
-const RETRY_DELAY_MS = 800;
-
-/**
- * Sleep helper for retry backoff.
- */
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Transcribe a raw audio buffer using Groq Whisper.
@@ -42,79 +42,73 @@ export const transcribeAudio = async (
   language = "en",
 ) => {
   if (!process.env.GROQ_API_KEY) {
-    console.error("[TRANSCRIPTION] GROQ_API_KEY is not set");
-    return { success: false, error: "GROQ_API_KEY not configured" };
+    logger.error("[TRANSCRIPTION] GROQ_API_KEY is not set");
+    throw new GroqError("GROQ_API_KEY not configured", null, 500, "GROQ_AUTH");
   }
 
   if (!audioBuffer || audioBuffer.length === 0) {
-    return { success: false, error: "Empty audio buffer" };
+    throw new GroqError("Empty audio buffer", null, 400, "GROQ_ERROR");
   }
 
   const groq = await getGroqClient();
-
-  // Determine file extension from MIME type for the File object name
   const ext = _mimeToExt(mimeType);
+  const file = new File([audioBuffer], `audio.${ext}`, { type: mimeType });
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      // Groq SDK expects a File-like object. We create one from the buffer.
-      const file = new File([audioBuffer], `audio.${ext}`, { type: mimeType });
+  try {
+    const transcription = await groqWithRetry(
+      "transcribe_audio",
+      () =>
+        groq.audio.transcriptions.create({
+          file,
+          model: MODEL,
+          language,
+          response_format: "verbose_json",
+        }),
+      { maxRetries: 3, timeoutMs: 60000 },
+    );
 
-      const transcription = await groq.audio.transcriptions.create({
-        file,
-        model: MODEL,
+    validateGroqResponse(transcription, ["text"]);
+
+    const text = transcription.text?.trim();
+
+    if (!text || _isSilent(text)) {
+      logger.debug("[TRANSCRIPTION] Silent audio detected", {
+        mimeType,
         language,
-        response_format: "verbose_json", // gives us segment-level timestamps
       });
-
-      const text = transcription.text?.trim();
-
-      // Filter out silent/empty results
-      if (!text || _isSilent(text)) {
-        return { success: true, text: null, silent: true };
-      }
-
-      if (attempt > 0) {
-        console.log(
-          `[TRANSCRIPTION] Succeeded on retry ${attempt}`,
-        );
-      }
-
-      return {
-        success: true,
-        text,
-        language: transcription.language || language,
-        duration: transcription.duration || null,
-        segments: transcription.segments || [],
-      };
-    } catch (error) {
-      const isLastAttempt = attempt === MAX_RETRIES;
-
-      // Don't retry on client errors (400-level) except rate limits
-      if (error?.status >= 400 && error?.status < 500 && error?.status !== 429) {
-        console.error(
-          `[TRANSCRIPTION] Client error (${error.status}): ${error.message}`,
-        );
-        return { success: false, error: error.message };
-      }
-
-      if (isLastAttempt) {
-        console.error(
-          `[TRANSCRIPTION] Failed after ${MAX_RETRIES + 1} attempts: ${error.message}`,
-        );
-        return { success: false, error: error.message };
-      }
-
-      const delay = RETRY_DELAY_MS * (attempt + 1);
-      console.warn(
-        `[TRANSCRIPTION] Attempt ${attempt + 1} failed: ${error.message}. ` +
-          `Retrying in ${delay}ms...`,
-      );
-      await sleep(delay);
+      return { success: true, text: null, silent: true };
     }
-  }
 
-  return { success: false, error: "Max retries exceeded" };
+    logger.info("[TRANSCRIPTION] Audio transcribed successfully", {
+      textLength: text.length,
+      language: transcription.language || language,
+      segmentCount: transcription.segments?.length || 0,
+    });
+
+    return {
+      success: true,
+      text,
+      language: transcription.language || language,
+      duration: transcription.duration || null,
+      segments: transcription.segments || [],
+    };
+  } catch (error) {
+    if (error instanceof GroqError) {
+      logger.error("[TRANSCRIPTION] Groq API error", error, {
+        operation: "transcribe_audio",
+        groqErrorCode: error.groqErrorCode,
+      });
+      throw error;
+    }
+
+    logger.error("[TRANSCRIPTION] Unexpected error", error);
+    throw new GroqError(
+      error.message || "Transcription failed",
+      error,
+      500,
+      "GROQ_ERROR",
+    );
+  }
 };
 
 // ─── Internal Helpers ────────────────────────────────────────────
