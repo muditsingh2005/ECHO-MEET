@@ -77,7 +77,7 @@ app.get("/health", (_req, res) => {
 
 app.use("/api/v1/ai", aiLimiter, aiRoutes);
 
-app.use("*", (_req, res) => {
+app.use((_req, res) => {
   logger.warn(`[NOT_FOUND] ${_req.method} ${_req.path}`);
   res.status(404).json({
     success: false,
