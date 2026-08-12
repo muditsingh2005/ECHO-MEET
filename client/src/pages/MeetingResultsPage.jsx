@@ -225,9 +225,7 @@ const MeetingResultsPage = () => {
       if (!hasTranscript && meetingId) {
         try {
           const transcriptResponse = await getSessionTranscript(meetingId);
-          const recovered = normalizeAIResultsPayload({
-            transcript: transcriptResponse?.transcript,
-          });
+          const recovered = normalizeAIResultsPayload(transcriptResponse);
 
           if (recovered.hasTranscript) {
             nextData = { ...nextData, transcript: recovered.transcript };
@@ -248,9 +246,7 @@ const MeetingResultsPage = () => {
           const summaryResponse = await summarizeTranscript(
             nextData.transcript.fullText,
           );
-          const recovered = normalizeAIResultsPayload({
-            meetingSummary: summaryResponse?.summary,
-          });
+          const recovered = normalizeAIResultsPayload(summaryResponse);
 
           if (recovered.hasSummary) {
             nextData = {

@@ -151,14 +151,38 @@ export const sanitizeSessionSummary = (sessionSummary) => {
   };
 };
 
+const isTranscriptShape = (value) =>
+  isObject(value) &&
+  ("fullText" in value || "segments" in value || "speakerStats" in value);
+
+const isMeetingSummaryShape = (value) =>
+  isObject(value) &&
+  ("title" in value ||
+    "overview" in value ||
+    "keyPoints" in value ||
+    "actionItems" in value ||
+    "decisions" in value ||
+    "topics" in value);
+
 export const normalizeAIResultsPayload = (payload) => {
+  const candidates = [];
+
+  if (isObject(payload)) {
+    if (isObject(payload.data)) {
+      candidates.push(payload.data);
+    }
+    candidates.push(payload);
+  }
+
   const source =
-    isObject(payload?.data) &&
-    (payload.data.transcript ||
-      payload.data.meetingSummary ||
-      payload.data.summary)
-      ? payload.data
-      : payload;
+    candidates.find(
+      (candidate) =>
+        isTranscriptShape(candidate) ||
+        isMeetingSummaryShape(candidate) ||
+        "transcript" in candidate ||
+        "meetingSummary" in candidate ||
+        "summary" in candidate,
+    ) ?? null;
 
   if (!isObject(source)) {
     return {
@@ -171,9 +195,22 @@ export const normalizeAIResultsPayload = (payload) => {
     };
   }
 
-  const transcript = sanitizeTranscript(source.transcript);
-  const meetingSummary = sanitizeMeetingSummary(source.meetingSummary);
-  const summary = sanitizeSessionSummary(source.summary);
+  const transcriptSource =
+    source.transcript ?? (isTranscriptShape(source) ? source : null);
+  const meetingSummarySource =
+    source.meetingSummary ??
+    (isMeetingSummaryShape(source) ? source : null) ??
+    (source.summary && !isMeetingSummaryShape(source.summary)
+      ? null
+      : source.summary);
+
+  const transcript = sanitizeTranscript(transcriptSource);
+  const meetingSummary = sanitizeMeetingSummary(meetingSummarySource);
+  const summary = sanitizeSessionSummary(
+    source.summary && !isMeetingSummaryShape(source.summary)
+      ? source.summary
+      : null,
+  );
 
   return {
     transcript,
