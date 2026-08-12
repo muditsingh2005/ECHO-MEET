@@ -126,7 +126,17 @@ const MeetingPage = () => {
       const audioTracks = localStreamRef.current.getAudioTracks();
       if (!audioTracks.length) return;
 
-      const stream = localStreamRef.current;
+      if (
+        audioRecorderRef.current &&
+        audioRecorderRef.current.state !== "inactive"
+      ) {
+        audioRecorderRef.current.stop();
+      }
+
+      const recordingStream = new MediaStream(
+        audioTracks.map((track) => track.clone()),
+      );
+
       const mimeTypes = [
         "audio/webm;codecs=opus",
         "audio/webm",
@@ -134,8 +144,8 @@ const MeetingPage = () => {
         "audio/ogg;codecs=opus",
       ];
 
-      const mimeType = mimeTypes.find((type) =>
-        MediaRecorder.isTypeSupported(type),
+      const mimeType = mimeTypes.find(
+        (type) => window.MediaRecorder && MediaRecorder.isTypeSupported(type),
       );
 
       if (!window.MediaRecorder) {
@@ -145,7 +155,7 @@ const MeetingPage = () => {
 
       try {
         const recorder = new MediaRecorder(
-          stream,
+          recordingStream,
           mimeType ? { mimeType } : undefined,
         );
         audioRecorderRef.current = recorder;
@@ -464,7 +474,6 @@ const MeetingPage = () => {
     localStreamRef.current.getAudioTracks().forEach((track) => {
       track.enabled = true;
     });
-    setIsMuted(false);
 
     startAudioRecording(socket);
 
@@ -630,7 +639,6 @@ const MeetingPage = () => {
     meeting,
     meetingId,
     user,
-    localStream,
     sendOffer,
     handleOffer,
     handleAnswer,
