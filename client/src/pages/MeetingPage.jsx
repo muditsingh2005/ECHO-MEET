@@ -117,6 +117,67 @@ const MeetingPage = () => {
   const peerConnectionsRef = useRef(new Map());
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
+  const audioRecorderRef = useRef(null);
+
+  const startAudioRecording = useCallback(
+    (socket) => {
+      if (!socket || !localStreamRef.current) return;
+
+      const audioTracks = localStreamRef.current.getAudioTracks();
+      if (!audioTracks.length) return;
+
+      const stream = localStreamRef.current;
+      const mimeTypes = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/mp4",
+        "audio/ogg;codecs=opus",
+      ];
+
+      const mimeType = mimeTypes.find((type) =>
+        MediaRecorder.isTypeSupported(type),
+      );
+
+      if (!window.MediaRecorder) {
+        console.warn("[Audio] MediaRecorder is not supported in this browser");
+        return;
+      }
+
+      try {
+        const recorder = new MediaRecorder(
+          stream,
+          mimeType ? { mimeType } : undefined,
+        );
+        audioRecorderRef.current = recorder;
+
+        recorder.ondataavailable = async (event) => {
+          if (!event.data || event.data.size === 0) return;
+
+          try {
+            const arrayBuffer = await event.data.arrayBuffer();
+            const audioData = Array.from(new Uint8Array(arrayBuffer));
+            socket.emit("audio-chunk", {
+              meetingId,
+              audioData,
+              mimeType: recorder.mimeType || "audio/webm",
+            });
+          } catch (err) {
+            console.error("[Audio] Failed to capture chunk:", err);
+          }
+        };
+
+        recorder.onerror = (event) => {
+          console.error("[Audio] Recorder error:", event.error || event);
+        };
+
+        recorder.start(2000);
+        console.log("[Audio] Recording started for meeting:", meetingId);
+      } catch (err) {
+        console.error("[Audio] Failed to start recorder:", err);
+      }
+    },
+    [meetingId],
+  );
 
   // WebRTC helper: Create peer connection for a user
   const createPeerConnection = useCallback(
@@ -336,6 +397,13 @@ const MeetingPage = () => {
 
     // Cleanup on unmount
     return () => {
+      if (
+        audioRecorderRef.current &&
+        audioRecorderRef.current.state !== "inactive"
+      ) {
+        audioRecorderRef.current.stop();
+        audioRecorderRef.current = null;
+      }
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((track) => track.stop());
         localStreamRef.current = null;
@@ -391,6 +459,14 @@ const MeetingPage = () => {
 
     // Connect socket
     const socket = connectSocket();
+
+    // Enable microphone by default so audio chunks can be forwarded to AI
+    localStreamRef.current.getAudioTracks().forEach((track) => {
+      track.enabled = true;
+    });
+    setIsMuted(false);
+
+    startAudioRecording(socket);
 
     // Event handlers
     const handleRoomJoined = (data) => {
