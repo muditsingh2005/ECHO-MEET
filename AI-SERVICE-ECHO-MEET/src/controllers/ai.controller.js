@@ -11,6 +11,10 @@ import {
 import { transcribeAudio } from "../services/transcription.service.js";
 import { assembleTranscript } from "../services/transcript.assembly.service.js";
 import { summarizeMeeting } from "../services/summarization.service.js";
+import {
+  saveAiResult,
+  getPersistedAiResult,
+} from "../services/aiResult.service.js";
 import { validators } from "../utils/validators.js";
 import { responses } from "../utils/responses.js";
 import { logger } from "../utils/logger.js";
@@ -279,6 +283,27 @@ export const endSessionHandler = async (req, res, next) => {
 
     const totalDurationMs = Date.now() - startTime;
 
+    try {
+      await saveAiResult({
+        meetingId: validatedRoomId,
+        roomId: validatedRoomId,
+        hostId: snapshot.hostId,
+        users: snapshot.users,
+        transcript: snapshot.transcript,
+        summary: meetingSummary,
+        phases,
+        status: meetingSummary ? "completed" : assembled ? "partial" : "failed",
+      });
+    } catch (persistError) {
+      logger.warn(
+        "[END-SESSION] Mongo persistence failed; returning response anyway",
+        {
+          roomId: validatedRoomId,
+          error: persistError.message,
+        },
+      );
+    }
+
     logger.info("[END-SESSION] Complete", {
       roomId: validatedRoomId,
       totalDurationMs,
@@ -323,15 +348,42 @@ function _buildSessionSummary(snapshot) {
  *
  * Returns the assembled transcript for an active session (mid-meeting).
  */
-export const getTranscriptHandler = (req, res, next) => {
+export const getTranscriptHandler = async (req, res, next) => {
   try {
     const { roomId } = req.params;
     const validatedRoomId = validators.roomId(roomId);
 
-    const rawTranscript = getTranscript(validatedRoomId);
+    let rawTranscript = getTranscript(validatedRoomId);
+    let persisted = false;
 
     if (!rawTranscript) {
-      throw new NotFoundError("No active session found for this room");
+      try {
+        const persistedResult = await getPersistedAiResult(validatedRoomId);
+
+        if (
+          !persistedResult?.transcript ||
+          !Array.isArray(persistedResult.transcript)
+        ) {
+          throw new NotFoundError(
+            "No active session or saved transcript found for this room",
+          );
+        }
+
+        rawTranscript = persistedResult.transcript;
+        persisted = true;
+      } catch (persistError) {
+        if (persistError instanceof NotFoundError) {
+          throw persistError;
+        }
+
+        logger.warn("[GET-TRANSCRIPT] Persisted transcript lookup failed", {
+          roomId: validatedRoomId,
+          error: persistError.message,
+        });
+        throw new NotFoundError(
+          "No active session or saved transcript found for this room",
+        );
+      }
     }
 
     const assembled = assembleTranscript(rawTranscript);
@@ -340,6 +392,7 @@ export const getTranscriptHandler = (req, res, next) => {
     logger.debug("[GET-TRANSCRIPT] Transcript retrieved", {
       roomId: validatedRoomId,
       segments: assembled.segments.length,
+      source: persisted ? "mongo" : "memory",
     });
 
     return res.status(200).json(
@@ -348,6 +401,7 @@ export const getTranscriptHandler = (req, res, next) => {
           roomId: validatedRoomId,
           entryCount: rawTranscript.length,
           transcript: assembled,
+          source: persisted ? "mongo" : "memory",
         },
         "Transcript retrieved",
       ),

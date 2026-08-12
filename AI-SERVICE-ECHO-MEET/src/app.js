@@ -19,11 +19,9 @@ const envOrigins = [
   .map(normalizeOrigin)
   .filter(Boolean);
 
-const defaultOrigins = [
-  "https://echo-meet-client.vercel.app",
-  "http://localhost:5173",
-  "http://localhost:3000",
-].map(normalizeOrigin);
+const defaultOrigins = ["https://echo-meet-client.vercel.app"].map(
+  normalizeOrigin,
+);
 
 const allowedOrigins = Array.from(
   new Set(
