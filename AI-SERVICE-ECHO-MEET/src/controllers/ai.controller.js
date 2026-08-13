@@ -167,9 +167,33 @@ export const endSessionHandler = async (req, res, next) => {
     const snapshot = endSession(validatedRoomId);
     phases.sessionFinalized.durationMs = Date.now() - p1Start;
 
+    // Fallback: If in-memory session was lost (e.g. Render restarted/slept)
     if (!snapshot) {
-      phases.sessionFinalized.status = "not_found";
-      throw new NotFoundError("No active session found for this room");
+      logger.warn("[END-SESSION] No in-memory session found. Checking MongoDB persistence...", { roomId: validatedRoomId });
+      const persisted = await getPersistedAiResult(validatedRoomId);
+
+      if (persisted) {
+        return res.status(200).json({
+          success: true,
+          message: "Session already ended and persisted",
+          summary: persisted.summary,
+          transcript: { fullText: "", segments: [], speakerStats: [] },
+          meetingSummary: persisted.summary,
+          phases: persisted.phases || phases,
+          totalDurationMs: 0,
+        });
+      }
+
+      // If no session exists anywhere, return empty result instead of throwing 404
+      return res.status(200).json({
+        success: true,
+        message: "No active audio session was recorded for this room.",
+        summary: null,
+        transcript: { fullText: "", segments: [], speakerStats: [] },
+        meetingSummary: null,
+        phases,
+        totalDurationMs: Date.now() - startTime,
+      });
     }
 
     phases.sessionFinalized.status = "success";
