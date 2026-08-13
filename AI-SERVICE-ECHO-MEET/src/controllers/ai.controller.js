@@ -385,33 +385,41 @@ export const getTranscriptHandler = async (req, res, next) => {
         const persistedResult = await getPersistedAiResult(validatedRoomId);
 
         if (
-          !persistedResult?.transcript ||
-          !Array.isArray(persistedResult.transcript)
+          persistedResult?.transcript &&
+          Array.isArray(persistedResult.transcript) &&
+          persistedResult.transcript.length > 0
         ) {
-          throw new NotFoundError(
-            "No active session or saved transcript found for this room",
-          );
+          rawTranscript = persistedResult.transcript;
+          persisted = true;
         }
-
-        rawTranscript = persistedResult.transcript;
-        persisted = true;
       } catch (persistError) {
-        if (persistError instanceof NotFoundError) {
-          throw persistError;
-        }
-
         logger.warn("[GET-TRANSCRIPT] Persisted transcript lookup failed", {
           roomId: validatedRoomId,
           error: persistError.message,
         });
-        throw new NotFoundError(
-          "No active session or saved transcript found for this room",
-        );
       }
     }
 
+    if (!rawTranscript || rawTranscript.length === 0) {
+      return res.status(200).json(
+        responses.success(
+          {
+            roomId: validatedRoomId,
+            entryCount: 0,
+            transcript: {
+              segments: [],
+              fullText: "",
+              speakerStats: [],
+              duration: null,
+            },
+            source: "none",
+          },
+          "No transcript available for this room",
+        ),
+      );
+    }
+
     const assembled = assembleTranscript(rawTranscript);
-    responses.validateDataPresence(assembled, "transcript");
 
     logger.debug("[GET-TRANSCRIPT] Transcript retrieved", {
       roomId: validatedRoomId,
